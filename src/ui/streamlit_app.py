@@ -135,6 +135,37 @@ class MemoryAPI:
     async def delete_memory(self, memory_id):
         response = await self.client.delete(f"/memories/{memory_id}")
         return response.json()
+    
+    # Research methods
+    async def conduct_research(self, query, auto_approve=None):
+        payload = {"query": query}
+        if auto_approve is not None:
+            payload["auto_approve"] = auto_approve
+            
+        response = await self.client.post("/research/", json=payload)
+        return response.json()
+    
+    async def get_pending_research(self):
+        response = await self.client.get("/research/")
+        return response.json()
+    
+    async def get_research_by_id(self, query_id):
+        response = await self.client.get(f"/research/{query_id}")
+        return response.json()
+    
+    async def approve_insights(self, query_id, insight_indices):
+        response = await self.client.post(f"/research/{query_id}/approve", json={
+            "insight_indices": insight_indices
+        })
+        return response.json()
+    
+    async def reject_research(self, query_id):
+        response = await self.client.delete(f"/research/{query_id}")
+        return response.json()
+    
+    async def get_research_settings(self):
+        response = await self.client.get("/settings/research")
+        return response.json()
 
 # API client
 @st.cache_resource
@@ -187,7 +218,7 @@ with st.sidebar:
     filter_tags = st.text_input("Filter by Tags (comma-separated)")
 
 # Main content
-tab1, tab2, tab3 = st.tabs(["Memory Stream", "Search", "Analytics"])
+tab1, tab2, tab3, tab4 = st.tabs(["Memory Stream", "Search", "Research", "Analytics"])
 
 with tab1:
     st.markdown("### Recent Memories")
@@ -270,6 +301,136 @@ with tab2:
             st.error(f"Error searching memories: {str(e)}")
 
 with tab3:
+    st.markdown("### Research Assistant")
+    
+    # Research settings
+    try:
+        settings = asyncio.run(api.get_research_settings())
+        auto_approve_default = settings.get("auto_approve", False)
+    except Exception:
+        auto_approve_default = False
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        research_query = st.text_area("Research Question", height=100, 
+                                      placeholder="Enter a research question for Perplexity to answer...")
+    
+    with col2:
+        st.markdown("### Settings")
+        auto_approve = st.toggle("Auto-Approve Insights", value=auto_approve_default, 
+                                help="Automatically store insights without review")
+    
+    if st.button("Conduct Research", type="primary"):
+        if not research_query:
+            st.error("Please enter a research question")
+        else:
+            with st.spinner("Researching..."):
+                try:
+                    result = asyncio.run(api.conduct_research(
+                        query=research_query,
+                        auto_approve=auto_approve
+                    ))
+                    
+                    if result.get("status") == "error":
+                        st.error(f"Research error: {result.get('error')}")
+                    elif result.get("status") == "pending_approval":
+                        st.success(f"Research complete! {len(result.get('insights', []))} insights ready for review.")
+                        st.session_state.last_query_id = result.get("query_id")
+                    else:
+                        st.success(f"Research complete! {result.get('stored_count', 0)} insights stored in memory.")
+                except Exception as e:
+                    st.error(f"Error conducting research: {str(e)}")
+    
+    # Pending research section
+    st.markdown("### Pending Research")
+    
+    try:
+        pending = asyncio.run(api.get_pending_research())
+        pending_research = pending.get("pending_research", {})
+        
+        if not pending_research:
+            st.info("No pending research to review")
+        else:
+            # Create tabs for each pending research
+            query_ids = list(pending_research.keys())
+            
+            if "last_query_id" in st.session_state and st.session_state.last_query_id in query_ids:
+                # Move the last query to the front
+                query_ids.remove(st.session_state.last_query_id)
+                query_ids.insert(0, st.session_state.last_query_id)
+            
+            pending_tabs = st.tabs([f"Research {i+1}" for i in range(len(query_ids))])
+            
+            for i, query_id in enumerate(query_ids):
+                research = pending_research[query_id]
+                
+                with pending_tabs[i]:
+                    st.markdown(f"### Query: {research['query']}")
+                    st.markdown(f"*Timestamp: {research['timestamp']}*")
+                    
+                    insights = research.get("insights", [])
+                    
+                    if not insights:
+                        st.warning("No insights found in this research")
+                    else:
+                        # Create checkboxes for each insight
+                        selected_insights = []
+                        
+                        for j, insight in enumerate(insights):
+                            insight_container = st.container()
+                            
+                            with insight_container:
+                                col1, col2 = st.columns([0.1, 0.9])
+                                
+                                with col1:
+                                    selected = st.checkbox("", key=f"{query_id}_{j}", value=True)
+                                    if selected:
+                                        selected_insights.append(j)
+                                
+                                with col2:
+                                    st.markdown(f"""
+                                        <div class='memory-card'>
+                                            <p>{insight['content']}</p>
+                                            <p><small>Confidence: {insight['confidence']:.2f} | Tags: {', '.join(insight['tags'])}</small></p>
+                                        </div>
+                                    """, unsafe_allow_html=True)
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if st.button("Approve Selected", key=f"approve_{query_id}"):
+                                if not selected_insights:
+                                    st.error("No insights selected")
+                                else:
+                                    with st.spinner("Storing insights..."):
+                                        try:
+                                            result = asyncio.run(api.approve_insights(
+                                                query_id=query_id,
+                                                insight_indices=selected_insights
+                                            ))
+                                            
+                                            if result.get("status") == "error":
+                                                st.error(f"Error: {result.get('error')}")
+                                            else:
+                                                st.success(f"{result.get('stored_count', 0)} insights stored in memory")
+                                                st.experimental_rerun()
+                                        except Exception as e:
+                                            st.error(f"Error approving insights: {str(e)}")
+                        
+                        with col2:
+                            if st.button("Reject All", key=f"reject_{query_id}"):
+                                try:
+                                    asyncio.run(api.reject_research(query_id))
+                                    st.success("Research rejected")
+                                    st.experimental_rerun()
+                                except Exception as e:
+                                    st.error(f"Error rejecting research: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"Error loading pending research: {str(e)}")
+
+with tab4:
     st.markdown("### Memory Analytics")
     
     try:
@@ -348,4 +509,4 @@ with tab3:
             """, unsafe_allow_html=True)
     
     except Exception as e:
-        st.error(f"Error generating analytics: {str(e)}") 
+        st.error(f"Error generating analytics: {str(e)}")

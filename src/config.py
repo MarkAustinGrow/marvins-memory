@@ -13,6 +13,9 @@ VECTOR_SIZE = 1536  # OpenAI text-embedding-3-small dimension
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Perplexity Configuration
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+
 # Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -22,4 +25,9 @@ MARVIN_ID = "af871ddd-febb-4454-9171-080450357b8c"
 
 # Memory Configuration
 MIN_ALIGNMENT_SCORE = 0.7
-MEMORY_TYPES = ["tweet", "research", "thought", "output", "quote"] 
+MEMORY_TYPES = ["tweet", "research", "thought", "output", "quote"]
+
+# Research Configuration
+RESEARCH_AUTO_APPROVE = os.getenv("RESEARCH_AUTO_APPROVE", "false").lower() == "true"
+RESEARCH_MIN_CONFIDENCE = 0.8
+RESEARCH_MAX_INSIGHTS = 5
