@@ -10,7 +10,9 @@ services:
       - QDRANT_HOST=qdrant  # Using the container name of the existing Qdrant instance
       - QDRANT_PORT=6333
     restart: unless-stopped
-    network_mode: "container:qdrant"  # Connect directly to the Qdrant container's network
+    network_mode: bridge  # Use default bridge network
+    extra_hosts:
+      - "qdrant:172.236.30.19"  # Map the container name to the host IP
 
 volumes:
   qdrant_data:
