@@ -1,28 +1,15 @@
 version: '3.8'
 
 services:
-  qdrant:
-    image: qdrant/qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    networks:
-      - marvin_net
-
   marvin_memory:
     build: .
     ports:
       - "8000:8000"  # FastAPI
       - "8501:8501"  # Streamlit
     environment:
-      - QDRANT_HOST=qdrant
+      - QDRANT_HOST=172.236.30.19  # Using the server's IP to connect to existing Qdrant
       - QDRANT_PORT=6333
-    depends_on:
-      - qdrant
-    networks:
-      - marvin_net
+    restart: unless-stopped
 
 volumes:
   qdrant_data:
