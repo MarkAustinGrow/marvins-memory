@@ -7,7 +7,7 @@ services:
       - "8000:8000"  # FastAPI
       - "8501:8501"  # Streamlit
     environment:
-      - QDRANT_HOST=qdrant  # Using the container name of the existing Qdrant instance
+      - QDRANT_HOST=qdrant.marvn.club  # Updated to point to the correct Qdrant server
       - QDRANT_PORT=6333
     restart: unless-stopped
     network_mode: bridge  # Use default bridge network
