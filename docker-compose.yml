@@ -6,6 +6,8 @@ services:
     ports:
       - "8000:8000"  # FastAPI
       - "8501:8501"  # Streamlit
+    env_file:
+      - .env
     environment:
       - QDRANT_HOST=qdrant.marvn.club  # Updated to point to the correct Qdrant server
       - QDRANT_PORT=6333
@@ -16,7 +18,3 @@ services:
 
 volumes:
   qdrant_data:
-
-networks:
-  marvin_net:
-    driver: bridge 
