@@ -7,9 +7,10 @@ services:
       - "8000:8000"  # FastAPI
       - "8501:8501"  # Streamlit
     environment:
-      - QDRANT_HOST=172.236.30.19  # Using the server's IP to connect to existing Qdrant
+      - QDRANT_HOST=qdrant  # Using the container name of the existing Qdrant instance
       - QDRANT_PORT=6333
     restart: unless-stopped
+    network_mode: "container:qdrant"  # Connect directly to the Qdrant container's network
 
 volumes:
   qdrant_data:
