@@ -6,25 +6,28 @@ import plotly.express as px
 import pandas as pd
 import asyncio
 
+# Global event loop for async operations
+_global_event_loop = None
+
 # Helper function to run async functions safely in Streamlit
 def run_async(async_func, *args, **kwargs):
     """
     Run an async function safely in Streamlit.
     
-    This function creates a new event loop for each call to avoid issues with
-    Streamlit's reactive programming model, where the app reruns on state changes.
+    This function manages a global event loop to prevent "Event loop is closed" errors
+    while still handling Streamlit's reactive programming model.
     """
+    global _global_event_loop
+    
     try:
-        # Always create a new event loop for each call to avoid conflicts
-        # This is safer in Streamlit's environment where the app can rerun at any time
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Create a new event loop if needed, but don't close it immediately
+        # This allows httpx to properly clean up its connections
+        if _global_event_loop is None or _global_event_loop.is_closed():
+            _global_event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_global_event_loop)
         
-        # Run the async function in the new event loop
-        result = loop.run_until_complete(async_func(*args, **kwargs))
-        
-        # Clean up
-        loop.close()
+        # Run the async function in the event loop
+        result = _global_event_loop.run_until_complete(async_func(*args, **kwargs))
         
         return result
     
@@ -72,6 +75,25 @@ def run_async(async_func, *args, **kwargs):
             import traceback
             print(f"Event loop error: {error_str}")
             print(f"Traceback: {traceback.format_exc()}")
+            
+            # Reset the global event loop to force creation of a new one on next call
+            global _global_event_loop
+            if _global_event_loop and not _global_event_loop.is_closed():
+                _global_event_loop.close()
+            _global_event_loop = None
+            
+            return {"status": "error", "error": error_msg}
+        elif "Event loop is closed" in error_str:
+            error_msg = "Event loop was closed. This can happen during page refreshes. Please try again."
+            st.error(error_msg)
+            import traceback
+            print(f"Event loop closed error: {error_str}")
+            print(f"Traceback: {traceback.format_exc()}")
+            
+            # Reset the global event loop to force creation of a new one on next call
+            global _global_event_loop
+            _global_event_loop = None
+            
             return {"status": "error", "error": error_msg}
         else:
             # Handle other runtime errors
