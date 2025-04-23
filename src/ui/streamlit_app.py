@@ -195,8 +195,17 @@ with tab1:
     
     with col2:
         st.subheader("Settings")
-        auto_approve = st.toggle("Auto-Approve Insights", value=auto_approve_default, 
-                                help="Automatically store insights without review")
+        auto_approve_container = st.container()
+        with auto_approve_container:
+            col_toggle, col_status = st.columns([3, 1])
+            with col_toggle:
+                auto_approve = st.toggle("Auto-Approve Insights", value=auto_approve_default, 
+                                        help="Automatically store insights without review")
+            with col_status:
+                if auto_approve:
+                    st.markdown("✅ <span style='color:green; font-weight:bold;'>ON</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown("❌ <span style='color:red; font-weight:bold;'>OFF</span>", unsafe_allow_html=True)
     
     if st.button("Conduct Research", type="primary"):
         if not research_query:
@@ -235,6 +244,14 @@ with tab1:
     
     # Pending research section
     st.subheader("Pending Research")
+    
+    # Add note about pending research storage
+    st.markdown("""
+    <div style="padding: 10px; border-radius: 5px; background-color: #f8f9fa; margin-bottom: 10px;">
+        <strong>Note:</strong> Pending research is stored in memory and will be lost if the application is restarted. 
+        If you don't see your research here after conducting it, it may have been auto-approved or lost due to a restart.
+    </div>
+    """, unsafe_allow_html=True)
     
     try:
         pending = run_async(api.get_pending_research)
