@@ -90,6 +90,15 @@ Each memory entry contains:
 - Graceful degradation when services are unavailable
 - Detailed logging for debugging and monitoring
 - Zero-vector fallbacks for embedding generation failures
+- Comprehensive retry logic for API calls
+  - Configurable retry counts and backoff strategy
+  - Different retry policies based on error type
+  - Automatic recovery from transient network issues
+- Improved exception handling in search functionality
+  - Detailed error logging with full stack traces
+  - Graceful recovery from search failures
+  - Return of empty results instead of error responses
+  - Individual result processing to prevent cascading failures
 
 ### Qdrant Integration
 - Vector similarity search using cosine distance
@@ -109,7 +118,16 @@ Each memory entry contains:
   }
   ```
 - Auto-correction mechanism for filter formats
-- Fallback to unfiltered queries when filter issues occur
+- Enhanced search reliability features:
+  - Fallback to unfiltered queries when filter issues occur
+  - Detailed logging of filter structures for debugging
+  - Automatic filter format validation and correction
+  - Progressive degradation of filter complexity on errors
+  - Graceful handling of Qdrant API version incompatibilities
+- Search optimization:
+  - Efficient vector comparison with cosine distance
+  - Proper handling of embedding dimensions (1536D)
+  - Configurable search limits and thresholds
 
 ### API Endpoints
 - Memory retrieval and search
@@ -120,6 +138,16 @@ Each memory entry contains:
 - Memory inspection and management
 - Content addition and editing
 - Search and filtering interface
+- Centralized state management with AppState pattern
+  - Singleton instance for consistent state across components
+  - Caching mechanism for API responses with configurable TTL
+  - Automatic cache invalidation on data changes
+  - Reduced redundant API calls through shared state
+- Robust async operations with AsyncManager
+  - Proper event loop lifecycle management
+  - Automatic retry mechanism for transient errors
+  - Shared httpx client for all API calls
+  - Graceful error recovery and fallback strategies
 
 ## Development Setup
 
@@ -187,6 +215,18 @@ See `Roadmap.md` for detailed development plans and milestones.
    - Verify vector database health
    - Review search parameters
    - Ensure filter format matches Qdrant expectations (see Qdrant Integration section)
+   - Check logs for "Error in search with filter" messages
+   - Verify the search query vector has the correct dimensions (1536)
+   - Examine if fallback search without filters is working
+   - Review the API response for error details in the returned JSON
+
+3. Search returning no results
+   - Verify that embeddings are being generated correctly
+   - Check if the query is semantically similar to stored content
+   - Examine filter conditions to ensure they're not too restrictive
+   - Look for "Fallback search returned X results" in logs
+   - Try searching without filters as a test
+   - Verify the search endpoint is returning 200 OK (not 500)
 
 3. Character alignment failures
    - Check character data is loaded correctly from Supabase
@@ -202,13 +242,25 @@ See `Roadmap.md` for detailed development plans and milestones.
 - Application logs available via Docker
 - Detailed error tracking
 - Performance metrics
-- Debug logging for troubleshooting:
+- Enhanced debug logging for troubleshooting:
   - Filter structure and processing
   - Character alignment evaluation
   - Embedding generation
   - API endpoint request/response
+  - Search query parameters and results
+  - Fallback mechanism activations
+  - Event loop lifecycle events
+  - API retry attempts and outcomes
+- Structured logging format for easier parsing
+- Comprehensive error logging with stack traces
 - Log levels can be adjusted in the code
 - View logs with `docker-compose logs --follow`
+- Key log patterns to look for:
+  - "Error in search with filter" - Indicates filter issues
+  - "Fallback search returned X results" - Shows fallback mechanism working
+  - "Trying without filter as fallback" - Filter bypass activated
+  - "Event loop error" - UI async operation issues
+  - "Retry attempt X of Y" - API retry mechanism in action
 
 ## Contributing
 Please refer to the project's contribution guidelines for information on:
