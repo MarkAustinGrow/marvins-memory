@@ -34,22 +34,38 @@ class MemoryManager:
         # Check character alignment
         alignment = self.character_manager.evaluate_alignment(content)
         
-        if alignment["alignment_score"] < MIN_ALIGNMENT_SCORE:
+        # Add error handling for alignment
+        if alignment is None:
+            logger.error("Character alignment evaluation returned None")
+            alignment = {
+                "alignment_score": MIN_ALIGNMENT_SCORE,
+                "matched_aspects": ["error_fallback"],
+                "explanation": "Error in alignment evaluation - using minimum score"
+            }
+        
+        alignment_score = alignment.get("alignment_score", 0)
+        if alignment_score < MIN_ALIGNMENT_SCORE:
+            logger.debug(f"Content rejected: alignment score {alignment_score} below threshold {MIN_ALIGNMENT_SCORE}")
             return None
+        
+        logger.debug(f"Content accepted: alignment score {alignment_score}")
         
         # Generate embedding
         vector = self.embedding_generator.generate(content)
         
         # Prepare payload
+        character_data = self.character_manager.get_current_character()
+        character_version = character_data.get("version", "unknown") if character_data else "unknown"
+        
         payload = {
             "content": content,
             "type": memory_type,
             "source": source,
             "timestamp": datetime.now().isoformat(),
             "tags": tags or [],
-            "persona_alignment_score": alignment["alignment_score"],
-            "matched_aspects": alignment["matched_aspects"],
-            "character_version": self.character_manager.get_current_character()["version"]
+            "persona_alignment_score": alignment.get("alignment_score", MIN_ALIGNMENT_SCORE),
+            "matched_aspects": alignment.get("matched_aspects", []),
+            "character_version": character_version
         }
         
         # Store in Qdrant

@@ -75,8 +75,13 @@ class CharacterManager:
         Evaluate how well content aligns with character
         Returns alignment score and relevant aspects
         """
-        # TODO: Implement alignment evaluation using LLM
-        pass
+        # This is a temporary implementation until LLM evaluation is added
+        # Always return a high alignment score to allow memory storage
+        return {
+            "alignment_score": 0.9,  # High score to ensure content is accepted
+            "matched_aspects": ["temporary_implementation"],
+            "explanation": "Temporary implementation - all content is accepted"
+        }
 
 # Create singleton instance
-character_manager = CharacterManager() 
+character_manager = CharacterManager()
