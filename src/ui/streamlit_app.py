@@ -5,115 +5,8 @@ from datetime import datetime
 import plotly.express as px
 import pandas as pd
 import asyncio
-
-# Global event loop for async operations
-_global_event_loop = None
-
-# Helper function to run async functions safely in Streamlit
-def run_async(async_func, *args, **kwargs):
-    """
-    Run an async function safely in Streamlit.
-    
-    This function manages a global event loop to prevent "Event loop is closed" errors
-    while still handling Streamlit's reactive programming model.
-    """
-    global _global_event_loop
-    
-    try:
-        # Create a new event loop if needed, but don't close it immediately
-        # This allows httpx to properly clean up its connections
-        if _global_event_loop is None or _global_event_loop.is_closed():
-            _global_event_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(_global_event_loop)
-        
-        # Run the async function in the event loop
-        result = _global_event_loop.run_until_complete(async_func(*args, **kwargs))
-        
-        return result
-    
-    except httpx.HTTPStatusError as e:
-        # Handle HTTP errors (e.g., 400, 500) with more detailed messages
-        status_code = e.response.status_code
-        try:
-            error_data = e.response.json()
-            error_detail = error_data.get('detail', str(e))
-            error_msg = f"HTTP {status_code} Error: {error_detail}"
-        except Exception:
-            error_msg = f"HTTP {status_code} Error: {str(e)}"
-        
-        st.error(error_msg)
-        import traceback
-        print(f"HTTP Error: {error_msg}")
-        print(f"Traceback: {traceback.format_exc()}")
-        # Don't raise the exception again to prevent the empty error message
-        return {"status": "error", "error": error_msg}
-    
-    except httpx.RequestError as e:
-        # Handle network/connection errors
-        error_msg = f"Network Error: {str(e)}"
-        st.error(error_msg)
-        import traceback
-        print(f"Request Error: {error_msg}")
-        print(f"Traceback: {traceback.format_exc()}")
-        return {"status": "error", "error": error_msg}
-    
-    except asyncio.TimeoutError:
-        # Handle timeout errors
-        error_msg = "The operation timed out. Please try again."
-        st.error(error_msg)
-        import traceback
-        print(f"Timeout Error")
-        print(f"Traceback: {traceback.format_exc()}")
-        return {"status": "error", "error": error_msg}
-    
-    except RuntimeError as e:
-        # Specifically handle event loop errors
-        error_str = str(e)
-        if "is bound to a different event loop" in error_str:
-            error_msg = "Event loop error detected. This is usually caused by Streamlit's rerun behavior. Please try again."
-            st.error(error_msg)
-            import traceback
-            print(f"Event loop error: {error_str}")
-            print(f"Traceback: {traceback.format_exc()}")
-            
-            # Reset the global event loop to force creation of a new one on next call
-            global _global_event_loop
-            if _global_event_loop and not _global_event_loop.is_closed():
-                _global_event_loop.close()
-            _global_event_loop = None
-            
-            return {"status": "error", "error": error_msg}
-        elif "Event loop is closed" in error_str:
-            error_msg = "Event loop was closed. This can happen during page refreshes. Please try again."
-            st.error(error_msg)
-            import traceback
-            print(f"Event loop closed error: {error_str}")
-            print(f"Traceback: {traceback.format_exc()}")
-            
-            # Reset the global event loop to force creation of a new one on next call
-            global _global_event_loop
-            _global_event_loop = None
-            
-            return {"status": "error", "error": error_msg}
-        else:
-            # Handle other runtime errors
-            error_msg = f"Runtime Error: {error_str}"
-            st.error(error_msg)
-            import traceback
-            print(f"Runtime error: {error_msg}")
-            print(f"Traceback: {traceback.format_exc()}")
-            return {"status": "error", "error": error_msg}
-    
-    except Exception as e:
-        # Handle all other exceptions
-        error_msg = f"Error: {str(e)}"
-        st.error(error_msg)
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"Unexpected error: {error_msg}")
-        print(f"Traceback: {error_details}")
-        # Don't raise the exception again to prevent the empty error message
-        return {"status": "error", "error": error_msg}
+import time
+from functools import wraps
 
 # Configure page
 st.set_page_config(
@@ -123,14 +16,310 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# API client
+# =====================================================================
+# STATE MANAGEMENT
+# =====================================================================
+
+class AppState:
+    """Centralized state management for the application"""
+    
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        """Get or create the singleton instance"""
+        if cls._instance is None:
+            cls._instance = AppState()
+        return cls._instance
+    
+    def __init__(self):
+        """Initialize the application state"""
+        self.async_manager = AsyncManager.get_instance()
+        self.api = MemoryAPI(self.async_manager)
+        
+        # Cache for memory data
+        self._memories_cache = None
+        self._memories_timestamp = 0
+        self._cache_ttl = 10  # Cache TTL in seconds
+        
+        # Cache for research data
+        self._pending_research_cache = None
+        self._pending_research_timestamp = 0
+        
+        # Cache for research settings
+        self._research_settings_cache = None
+    
+    def get_memories(self, force_refresh=False):
+        """Get all memories with caching"""
+        current_time = time.time()
+        
+        # Return cached data if it's still fresh
+        if not force_refresh and self._memories_cache is not None and (current_time - self._memories_timestamp) < self._cache_ttl:
+            return self._memories_cache
+        
+        # Fetch fresh data
+        try:
+            memories = self.async_manager.run_async(self.api.list_memories)
+            if memories and "status" not in memories:
+                self._memories_cache = memories
+                self._memories_timestamp = current_time
+            return memories
+        except Exception as e:
+            print(f"Error fetching memories: {str(e)}")
+            return {"memories": []} if self._memories_cache is None else self._memories_cache
+    
+    def get_pending_research(self, force_refresh=False):
+        """Get pending research with caching"""
+        current_time = time.time()
+        
+        # Return cached data if it's still fresh
+        if not force_refresh and self._pending_research_cache is not None and (current_time - self._pending_research_timestamp) < self._cache_ttl:
+            return self._pending_research_cache
+        
+        # Fetch fresh data
+        try:
+            pending = self.async_manager.run_async(self.api.get_pending_research)
+            if pending and "status" not in pending:
+                self._pending_research_cache = pending
+                self._pending_research_timestamp = current_time
+            return pending
+        except Exception as e:
+            print(f"Error fetching pending research: {str(e)}")
+            return {"pending_research": {}} if self._pending_research_cache is None else self._pending_research_cache
+    
+    def get_research_settings(self):
+        """Get research settings with caching"""
+        if self._research_settings_cache is not None:
+            return self._research_settings_cache
+        
+        try:
+            settings = self.async_manager.run_async(self.api.get_research_settings)
+            if settings and "status" not in settings:
+                self._research_settings_cache = settings
+            return settings
+        except Exception as e:
+            print(f"Error fetching research settings: {str(e)}")
+            return {"auto_approve": False}
+    
+    def conduct_research(self, query, auto_approve=None):
+        """Conduct research and invalidate caches"""
+        result = self.async_manager.run_async(self.api.conduct_research, query=query, auto_approve=auto_approve)
+        
+        # Invalidate caches
+        self._pending_research_cache = None
+        self._memories_cache = None
+        
+        return result
+    
+    def approve_insights(self, query_id, insight_indices):
+        """Approve insights and invalidate caches"""
+        result = self.async_manager.run_async(self.api.approve_insights, query_id=query_id, insight_indices=insight_indices)
+        
+        # Invalidate caches
+        self._pending_research_cache = None
+        self._memories_cache = None
+        
+        return result
+    
+    def reject_research(self, query_id):
+        """Reject research and invalidate caches"""
+        result = self.async_manager.run_async(self.api.reject_research, query_id=query_id)
+        
+        # Invalidate caches
+        self._pending_research_cache = None
+        
+        return result
+    
+    def delete_memory(self, memory_id):
+        """Delete memory and invalidate caches"""
+        result = self.async_manager.run_async(self.api.delete_memory, memory_id)
+        
+        # Invalidate caches
+        self._memories_cache = None
+        
+        return result
+    
+    def search_memories(self, query, limit=5):
+        """Search memories"""
+        return self.async_manager.run_async(self.api.search_memories, query=query, limit=limit)
+
+
+class AsyncManager:
+    """Manages async operations and resources for the application"""
+    
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        """Get or create the singleton instance"""
+        if cls._instance is None:
+            cls._instance = AsyncManager()
+        return cls._instance
+    
+    def __init__(self):
+        """Initialize the async manager"""
+        self._client = None
+        self._event_loop = None
+        self._last_error_time = 0
+        self._error_count = 0
+        self._max_retries = 3
+        
+    def get_client(self):
+        """Get the shared httpx client"""
+        if self._client is None:
+            # Create a new client with a longer timeout
+            self._client = httpx.AsyncClient(
+                base_url="http://localhost:8000",
+                timeout=30.0
+            )
+        return self._client
+    
+    async def close_client(self):
+        """Close the httpx client properly"""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+    
+    def run_async(self, async_func, *args, **kwargs):
+        """
+        Run an async function safely in Streamlit with retry logic
+        """
+        retry_count = 0
+        
+        while retry_count <= self._max_retries:
+            try:
+                # Create a new event loop if needed
+                if self._event_loop is None or self._event_loop.is_closed():
+                    self._event_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._event_loop)
+                
+                # Run the async function
+                result = self._event_loop.run_until_complete(async_func(*args, **kwargs))
+                
+                # Reset error count on success
+                self._error_count = 0
+                return result
+                
+            except httpx.HTTPStatusError as e:
+                # Handle HTTP errors (e.g., 400, 500) with more detailed messages
+                status_code = e.response.status_code
+                try:
+                    error_data = e.response.json()
+                    error_detail = error_data.get('detail', str(e))
+                    error_msg = f"HTTP {status_code} Error: {error_detail}"
+                except Exception:
+                    error_msg = f"HTTP {status_code} Error: {str(e)}"
+                
+                st.error(error_msg)
+                import traceback
+                print(f"HTTP Error: {error_msg}")
+                print(f"Traceback: {traceback.format_exc()}")
+                
+                # Increment retry count and wait before retrying
+                retry_count += 1
+                if retry_count <= self._max_retries:
+                    time.sleep(1)  # Wait 1 second before retrying
+                    continue
+                
+                # Don't raise the exception again to prevent the empty error message
+                return {"status": "error", "error": error_msg}
+            
+            except httpx.RequestError as e:
+                # Handle network/connection errors
+                error_msg = f"Network Error: {str(e)}"
+                st.error(error_msg)
+                import traceback
+                print(f"Request Error: {error_msg}")
+                print(f"Traceback: {traceback.format_exc()}")
+                
+                # Increment retry count and wait before retrying
+                retry_count += 1
+                if retry_count <= self._max_retries:
+                    time.sleep(1)  # Wait 1 second before retrying
+                    continue
+                
+                return {"status": "error", "error": error_msg}
+            
+            except asyncio.TimeoutError:
+                # Handle timeout errors
+                error_msg = "The operation timed out. Please try again."
+                st.error(error_msg)
+                import traceback
+                print(f"Timeout Error")
+                print(f"Traceback: {traceback.format_exc()}")
+                
+                # Increment retry count and wait before retrying
+                retry_count += 1
+                if retry_count <= self._max_retries:
+                    time.sleep(2)  # Wait 2 seconds before retrying timeout errors
+                    continue
+                
+                return {"status": "error", "error": error_msg}
+            
+            except RuntimeError as e:
+                # Specifically handle event loop errors
+                error_str = str(e)
+                if "is bound to a different event loop" in error_str or "Event loop is closed" in error_str:
+                    error_msg = "Event loop error detected. Recreating event loop and retrying..."
+                    print(f"Event loop error: {error_str}")
+                    
+                    # Reset the event loop
+                    if self._event_loop and not self._event_loop.is_closed():
+                        try:
+                            self._event_loop.close()
+                        except:
+                            pass
+                    self._event_loop = None
+                    
+                    # Increment retry count and wait before retrying
+                    retry_count += 1
+                    if retry_count <= self._max_retries:
+                        time.sleep(0.5)  # Short wait before retrying
+                        continue
+                    
+                    st.error("Maximum retries exceeded for event loop errors. Please refresh the page.")
+                    return {"status": "error", "error": error_msg}
+                else:
+                    # Handle other runtime errors
+                    error_msg = f"Runtime Error: {error_str}"
+                    st.error(error_msg)
+                    import traceback
+                    print(f"Runtime error: {error_msg}")
+                    print(f"Traceback: {traceback.format_exc()}")
+                    return {"status": "error", "error": error_msg}
+            
+            except Exception as e:
+                # Handle all other exceptions
+                error_msg = f"Error: {str(e)}"
+                st.error(error_msg)
+                import traceback
+                error_details = traceback.format_exc()
+                print(f"Unexpected error: {error_msg}")
+                print(f"Traceback: {error_details}")
+                
+                # Increment retry count for unexpected errors
+                retry_count += 1
+                if retry_count <= self._max_retries:
+                    time.sleep(1)  # Wait 1 second before retrying
+                    continue
+                
+                # Don't raise the exception again to prevent the empty error message
+                return {"status": "error", "error": error_msg}
+        
+        # This should never be reached, but just in case
+        return {"status": "error", "error": "Maximum retries exceeded"}
+
+# =====================================================================
+# API CLIENT
+# =====================================================================
+
 class MemoryAPI:
-    def __init__(self, base_url="http://localhost:8000"):
-        self.base_url = base_url
-        self.client = httpx.AsyncClient(base_url=base_url)
+    def __init__(self, async_manager=None):
+        self.async_manager = async_manager or AsyncManager.get_instance()
     
     async def create_memory(self, content, memory_type, source, tags=None):
-        response = await self.client.post("/memories/", json={
+        client = self.async_manager.get_client()
+        response = await client.post("/memories/", json={
             "content": content,
             "type": memory_type,
             "source": source,
@@ -147,7 +336,8 @@ class MemoryAPI:
         if tags:
             params["tags"] = tags
         
-        response = await self.client.get("/memories/search", params=params)
+        client = self.async_manager.get_client()
+        response = await client.get("/memories/search", params=params)
         return response.json()
     
     async def list_memories(self, memory_type=None, min_alignment=None, tags=None):
@@ -159,11 +349,13 @@ class MemoryAPI:
         if tags:
             params["tags"] = tags
         
-        response = await self.client.get("/memories/", params=params)
+        client = self.async_manager.get_client()
+        response = await client.get("/memories/", params=params)
         return response.json()
     
     async def delete_memory(self, memory_id):
-        response = await self.client.delete(f"/memories/{memory_id}")
+        client = self.async_manager.get_client()
+        response = await client.delete(f"/memories/{memory_id}")
         return response.json()
     
     # Research methods
@@ -171,39 +363,45 @@ class MemoryAPI:
         payload = {"query": query}
         if auto_approve is not None:
             payload["auto_approve"] = auto_approve
-            
-        response = await self.client.post("/research/", json=payload)
+        
+        client = self.async_manager.get_client()
+        response = await client.post("/research/", json=payload)
         return response.json()
     
     async def get_pending_research(self):
-        response = await self.client.get("/research/")
+        client = self.async_manager.get_client()
+        response = await client.get("/research/")
         return response.json()
     
     async def get_research_by_id(self, query_id):
-        response = await self.client.get(f"/research/{query_id}")
+        client = self.async_manager.get_client()
+        response = await client.get(f"/research/{query_id}")
         return response.json()
     
     async def approve_insights(self, query_id, insight_indices):
-        response = await self.client.post(f"/research/{query_id}/approve", json={
+        client = self.async_manager.get_client()
+        response = await client.post(f"/research/{query_id}/approve", json={
             "insight_indices": insight_indices
         })
         return response.json()
     
     async def reject_research(self, query_id):
-        response = await self.client.delete(f"/research/{query_id}")
+        client = self.async_manager.get_client()
+        response = await client.delete(f"/research/{query_id}")
         return response.json()
     
     async def get_research_settings(self):
-        response = await self.client.get("/settings/research")
+        client = self.async_manager.get_client()
+        response = await client.get("/settings/research")
         return response.json()
 
-# API client
+# Initialize application state
 @st.cache_resource
-def get_api_client():
-    return MemoryAPI()
+def get_app_state():
+    return AppState.get_instance()
 
-# Initialize API client
-api = get_api_client()
+# Get app state
+app_state = get_app_state()
 
 # Initialize session state for tab selection
 if 'active_tab' not in st.session_state:
@@ -222,11 +420,8 @@ with tab1:
     st.header("Research Assistant")
     
     # Research settings
-    try:
-        settings = run_async(api.get_research_settings)
-        auto_approve_default = settings.get("auto_approve", False)
-    except Exception:
-        auto_approve_default = False
+    settings = app_state.get_research_settings()
+    auto_approve_default = settings.get("auto_approve", False)
     
     col1, col2 = st.columns([3, 1])
     
@@ -257,7 +452,7 @@ with tab1:
             
             with st.spinner("Researching..."):
                 try:
-                    result = run_async(api.conduct_research,
+                    result = app_state.conduct_research(
                         query=research_query,
                         auto_approve=auto_approve
                     )
@@ -294,84 +489,87 @@ with tab1:
     </div>
     """, unsafe_allow_html=True)
     
-    try:
-        pending = run_async(api.get_pending_research)
-        pending_research = pending.get("pending_research", {})
-        
-        if not pending_research:
-            st.info("No pending research to review")
-        else:
-            # Create tabs for each pending research
-            query_ids = list(pending_research.keys())
-            
-            if "last_query_id" in st.session_state and st.session_state.last_query_id in query_ids:
-                # Move the last query to the front
-                query_ids.remove(st.session_state.last_query_id)
-                query_ids.insert(0, st.session_state.last_query_id)
-            
-            pending_tabs = st.tabs([f"Research {i+1}" for i in range(len(query_ids))])
-            
-            for i, query_id in enumerate(query_ids):
-                research = pending_research[query_id]
-                
-                with pending_tabs[i]:
-                    st.subheader(f"Query: {research['query']}")
-                    st.write(f"*Timestamp: {research['timestamp']}*")
-                    
-                    insights = research.get("insights", [])
-                    
-                    if not insights:
-                        st.warning("No insights found in this research")
-                    else:
-                        # Create checkboxes for each insight
-                        selected_insights = []
-                        
-                        for j, insight in enumerate(insights):
-                            insight_container = st.container()
-                            
-                            with insight_container:
-                                col1, col2 = st.columns([0.1, 0.9])
-                                
-                                with col1:
-                                    selected = st.checkbox("", key=f"{query_id}_{j}", value=True)
-                                    if selected:
-                                        selected_insights.append(j)
-                                
-                                with col2:
-                                    st.write(insight['content'])
-                                    st.write(f"Confidence: {insight['confidence']:.2f} | Tags: {', '.join(insight['tags'])}")
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            if st.button("Approve Selected", key=f"approve_{query_id}"):
-                                if not selected_insights:
-                                    st.error("No insights selected")
-                                else:
-                                    with st.spinner("Storing insights..."):
-                                        try:
-                                            result = run_async(api.approve_insights,
-                                                query_id=query_id,
-                                                insight_indices=selected_insights
-                                            )
-                                            
-                                            if result.get("status") == "error":
-                                                st.error(f"Error: {result.get('error')}")
-                                            else:
-                                                st.success(f"{result.get('stored_count', 0)} insights stored in memory")
-                                                st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Error approving insights: {str(e)}")
-                        
-                        with col2:
-                            if st.button("Reject All", key=f"reject_{query_id}"):
-                                try:
-                                    run_async(api.reject_research, query_id)
-                                    st.success("Research rejected")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error rejecting research: {str(e)}")
+    # Get pending research
+    pending = app_state.get_pending_research(force_refresh=True)
+    pending_research = pending.get("pending_research", {})
     
+    if not pending_research:
+        st.info("No pending research to review")
+    else:
+        # Create tabs for each pending research
+        query_ids = list(pending_research.keys())
+        
+        if "last_query_id" in st.session_state and st.session_state.last_query_id in query_ids:
+            # Move the last query to the front
+            query_ids.remove(st.session_state.last_query_id)
+            query_ids.insert(0, st.session_state.last_query_id)
+        
+        pending_tabs = st.tabs([f"Research {i+1}" for i in range(len(query_ids))])
+        
+        for i, query_id in enumerate(query_ids):
+            research = pending_research[query_id]
+            
+            with pending_tabs[i]:
+                st.subheader(f"Query: {research['query']}")
+                st.write(f"*Timestamp: {research['timestamp']}*")
+                
+                insights = research.get("insights", [])
+                
+                if not insights:
+                    st.warning("No insights found in this research")
+                else:
+                    # Create checkboxes for each insight
+                    selected_insights = []
+                    
+                    for j, insight in enumerate(insights):
+                        insight_container = st.container()
+                        
+                        with insight_container:
+                            col1, col2 = st.columns([0.1, 0.9])
+                            
+                            with col1:
+                                selected = st.checkbox("", key=f"{query_id}_{j}", value=True)
+                                if selected:
+                                    selected_insights.append(j)
+                            
+                            with col2:
+                                st.write(insight['content'])
+                                st.write(f"Confidence: {insight['confidence']:.2f} | Tags: {', '.join(insight['tags'])}")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("Approve Selected", key=f"approve_{query_id}"):
+                            if not selected_insights:
+                                st.error("No insights selected")
+                            else:
+                                with st.spinner("Storing insights..."):
+                                    try:
+                                        result = app_state.approve_insights(
+                                            query_id=query_id,
+                                            insight_indices=selected_insights
+                                        )
+                                        
+                                        if result.get("status") == "error":
+                                            st.error(f"Error: {result.get('error')}")
+                                        else:
+                                            st.success(f"{result.get('stored_count', 0)} insights stored in memory")
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error approving insights: {str(e)}")
+                    
+                    with col2:
+                        if st.button("Reject All", key=f"reject_{query_id}"):
+                            try:
+                                app_state.reject_research(query_id)
+                                st.success("Research rejected")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error rejecting research: {str(e)}")
+    
+    try:
+        # This is a placeholder to catch any errors in the pending research section
+        pass
     except Exception as e:
         st.error(f"Error loading pending research: {str(e)}")
 
@@ -380,7 +578,7 @@ with tab2:
     
     # Get memories
     try:
-        memories = run_async(api.list_memories)
+        memories = app_state.get_memories(force_refresh=True)
         
         if not memories.get("memories"):
             st.info("No memories found.")
@@ -393,7 +591,7 @@ with tab2:
                 
                 if st.button(f"Delete Memory {memory['id']}", key=memory['id']):
                     try:
-                        run_async(api.delete_memory, memory['id'])
+                        app_state.delete_memory(memory['id'])
                         st.success("Memory deleted successfully")
                         st.rerun()
                     except Exception as e:
@@ -411,7 +609,7 @@ with tab3:
     
     if search_query:
         try:
-            results = run_async(api.search_memories, query=search_query, limit=search_limit)
+            results = app_state.search_memories(query=search_query, limit=search_limit)
             
             if not results.get("memories"):
                 st.info("No matching memories found.")
@@ -430,7 +628,7 @@ with tab4:
     st.header("Memory Analytics")
     
     try:
-        memories = run_async(api.list_memories)
+        memories = app_state.get_memories(force_refresh=True)
         if memories.get("memories"):
             df = pd.DataFrame(memories["memories"])
             
