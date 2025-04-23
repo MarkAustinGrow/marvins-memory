@@ -54,7 +54,7 @@ class QdrantManager:
             query_filter=filter_conditions
         )
     
-    def get_all_memories(self, batch_size=100, filter_conditions=None):
+    def get_all_memories(self, batch_size=100, filter=None):
         """Get all memories with pagination"""
         offset = None
         while True:
@@ -62,7 +62,7 @@ class QdrantManager:
                 collection_name=COLLECTION_NAME,
                 limit=batch_size,
                 offset=offset,
-                filter=filter_conditions
+                filter=filter
             )[0]  # scroll returns (points, next_offset)
             
             if not results:
