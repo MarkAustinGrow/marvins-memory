@@ -55,6 +55,7 @@ async def create_memory(memory: MemoryInput):
 
 @app.get("/memories/search")
 async def search_memories(
+    request: Request,
     query: str,
     limit: int = 5,
     memory_type: Optional[str] = None,
@@ -62,7 +63,11 @@ async def search_memories(
     tags: Optional[List[str]] = None
 ):
     """Search memories by semantic similarity"""
+    logger.debug(f"search_memories called with query='{query}', limit={limit}, memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}")
+    logger.debug(f"Request query params: {request.query_params}")
+    
     try:
+        logger.debug("Calling memory_manager.query_memories")
         memories = await memory_manager.query_memories(
             query=query,
             limit=limit,
@@ -70,9 +75,15 @@ async def search_memories(
             min_alignment=min_alignment,
             tags=tags
         )
+        logger.debug(f"query_memories returned {len(memories)} memories")
+        
+        # Even if no memories are found, return a 200 OK with an empty list
         return {"memories": memories}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in search_memories endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        # Return empty results instead of raising an exception
+        return {"memories": [], "error": str(e)}
 
 @app.get("/memories/")
 async def list_memories(

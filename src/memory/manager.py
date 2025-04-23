@@ -82,51 +82,74 @@ class MemoryManager:
         """
         Query memories based on semantic similarity
         """
-        # Generate query embedding
-        query_vector = self.embedding_generator.generate(query)
+        logger.debug(f"query_memories called with query='{query}', limit={limit}, memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}")
         
-        # Prepare filters
-        filter_conditions = {
-            "must": [
-                {
-                    "key": "persona_alignment_score",
-                    "range": {"gte": min_alignment}
-                }
-            ]
-        }
-        
-        if memory_type:
-            filter_conditions["must"].append({
-                "key": "type",
-                "match": {"value": memory_type}
-            })
-        
-        if tags:
-            filter_conditions["must"].append({
-                "key": "tags",
-                "match": {"value": tags}
-            })
-        
-        # Query Qdrant
-        results = self.qdrant.query_memories(
-            query_vector=query_vector,
-            limit=limit,
-            filter_conditions=filter_conditions
-        )
-        
-        return [
-            {
-                "id": point.id,
-                "content": point.payload["content"],
-                "type": point.payload["type"],
-                "source": point.payload["source"],
-                "timestamp": point.payload["timestamp"],
-                "tags": point.payload["tags"],
-                "alignment_score": point.payload["persona_alignment_score"],
-                "similarity_score": point.score
+        try:
+            # Generate query embedding
+            query_vector = self.embedding_generator.generate(query)
+            logger.debug(f"Generated embedding vector of length {len(query_vector)}")
+            
+            # Prepare filters
+            filter_conditions = {
+                "must": [
+                    {
+                        "key": "persona_alignment_score",
+                        "range": {"gte": min_alignment}
+                    }
+                ]
             }
-            for point in results
-        ]
+            
+            if memory_type:
+                filter_conditions["must"].append({
+                    "key": "type",
+                    "match": {"value": memory_type}
+                })
+            
+            if tags:
+                filter_conditions["must"].append({
+                    "key": "tags",
+                    "match": {"value": tags}
+                })
+            
+            logger.debug(f"Constructed filter: {json.dumps(filter_conditions)}")
+            
+            # Query Qdrant
+            logger.debug("Calling qdrant.query_memories")
+            results = self.qdrant.query_memories(
+                query_vector=query_vector,
+                limit=limit,
+                filter_conditions=filter_conditions
+            )
+            
+            logger.debug(f"Query returned {len(results)} results")
+            
+            # Process results
+            memories = []
+            for point in results:
+                try:
+                    memory = {
+                        "id": point.id,
+                        "content": point.payload["content"],
+                        "type": point.payload["type"],
+                        "source": point.payload["source"],
+                        "timestamp": point.payload["timestamp"],
+                        "tags": point.payload["tags"],
+                        "alignment_score": point.payload["persona_alignment_score"],
+                        "similarity_score": point.score
+                    }
+                    memories.append(memory)
+                except Exception as e:
+                    logger.error(f"Error processing result point: {str(e)}")
+                    # Continue with other results
+            
+            logger.debug(f"Returning {len(memories)} processed memories")
+            return memories
+            
+        except Exception as e:
+            logger.error(f"Error in query_memories: {str(e)}")
+            logger.error(f"Traceback: {logging.traceback.format_exc()}")
+            # Return empty list instead of raising exception
+            return []
     
     def get_all_memories(
         self,

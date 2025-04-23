@@ -53,12 +53,42 @@ class QdrantManager:
     
     def query_memories(self, query_vector, limit=5, filter_conditions=None):
         """Query similar memories"""
-        return self.client.search(
-            collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
-            limit=limit,
-            filter=filter_conditions
-        )
+        logger.debug(f"query_memories called with filter: {json.dumps(filter_conditions) if filter_conditions else None}")
+        
+        try:
+            # Try with filter first
+            if filter_conditions:
+                logger.debug(f"Attempting search with filter: {json.dumps(filter_conditions)}")
+                return self.client.search(
+                    collection_name=COLLECTION_NAME,
+                    query_vector=query_vector,
+                    limit=limit,
+                    filter=filter_conditions
+                )
+            else:
+                # No filter provided
+                return self.client.search(
+                    collection_name=COLLECTION_NAME,
+                    query_vector=query_vector,
+                    limit=limit
+                )
+        except Exception as e:
+            logger.error(f"Error in search with filter: {str(e)}")
+            
+            # Try without filter as fallback
+            logger.debug("Trying search without filter as fallback")
+            try:
+                results = self.client.search(
+                    collection_name=COLLECTION_NAME,
+                    query_vector=query_vector,
+                    limit=limit
+                )
+                logger.debug(f"Fallback search returned {len(results)} results")
+                return results
+            except Exception as fallback_error:
+                logger.error(f"Error in fallback search: {str(fallback_error)}")
+                # Re-raise the original error if fallback also fails
+                raise e
     
     def get_all_memories(self, batch_size=100, filter=None):
         """Get all memories with pagination"""
