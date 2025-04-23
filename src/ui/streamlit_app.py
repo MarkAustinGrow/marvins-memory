@@ -28,12 +28,51 @@ def run_async(async_func, *args, **kwargs):
         else:
             return _global_event_loop.run_until_complete(async_func(*args, **kwargs))
     
-    except Exception as e:
-        st.error(f"Async operation error: {str(e)}")
-        # Log the full exception for debugging
+    except httpx.HTTPStatusError as e:
+        # Handle HTTP errors (e.g., 400, 500) with more detailed messages
+        status_code = e.response.status_code
+        try:
+            error_data = e.response.json()
+            error_detail = error_data.get('detail', str(e))
+            error_msg = f"HTTP {status_code} Error: {error_detail}"
+        except Exception:
+            error_msg = f"HTTP {status_code} Error: {str(e)}"
+        
+        st.error(error_msg)
         import traceback
-        print(f"Async error details: {traceback.format_exc()}")
-        raise e
+        print(f"HTTP Error: {error_msg}")
+        print(f"Traceback: {traceback.format_exc()}")
+        # Don't raise the exception again to prevent the empty error message
+        return {"status": "error", "error": error_msg}
+    
+    except httpx.RequestError as e:
+        # Handle network/connection errors
+        error_msg = f"Network Error: {str(e)}"
+        st.error(error_msg)
+        import traceback
+        print(f"Request Error: {error_msg}")
+        print(f"Traceback: {traceback.format_exc()}")
+        return {"status": "error", "error": error_msg}
+    
+    except asyncio.TimeoutError:
+        # Handle timeout errors
+        error_msg = "The operation timed out. Please try again."
+        st.error(error_msg)
+        import traceback
+        print(f"Timeout Error")
+        print(f"Traceback: {traceback.format_exc()}")
+        return {"status": "error", "error": error_msg}
+    
+    except Exception as e:
+        # Handle all other exceptions
+        error_msg = f"Error: {str(e)}"
+        st.error(error_msg)
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Unexpected error: {error_msg}")
+        print(f"Traceback: {error_details}")
+        # Don't raise the exception again to prevent the empty error message
+        return {"status": "error", "error": error_msg}
 
 # Configure page
 st.set_page_config(
@@ -125,11 +164,38 @@ def get_api_client():
 # Initialize API client
 api = get_api_client()
 
+# Initialize session state for tab selection
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = 0  # Default to Memory Stream tab
+
 # Title
 st.title("🧠 Marvin's Neural Archive")
 
 # Main content
-tab1, tab2, tab3, tab4 = st.tabs(["Memory Stream", "Search", "Research", "Analytics"])
+tab_names = ["Memory Stream", "Search", "Research", "Analytics"]
+tab1, tab2, tab3, tab4 = st.tabs(tab_names)
+
+# Set the active tab based on session state
+active_tab = st.session_state.active_tab
+
+# Use JavaScript to click on the active tab
+js_code = f"""
+<script>
+    // Function to click on a tab
+    function clickTab(tabIndex) {{
+        const tabs = window.parent.document.querySelectorAll('.stTabs [data-baseweb="tab-list"] [role="tab"]');
+        if (tabs.length > tabIndex) {{
+            tabs[tabIndex].click();
+        }}
+    }}
+    
+    // Click on the active tab after a short delay to ensure the page is loaded
+    setTimeout(function() {{
+        clickTab({active_tab});
+    }}, 100);
+</script>
+"""
+st.components.v1.html(js_code, height=0)
 
 with tab1:
     st.header("Recent Memories")
@@ -207,6 +273,9 @@ with tab3:
         if not research_query:
             st.error("Please enter a research question")
         else:
+            # Set the active tab to Research (index 2)
+            st.session_state.active_tab = 2
+            
             with st.spinner("Researching..."):
                 try:
                     result = run_async(api.conduct_research,
@@ -215,14 +284,25 @@ with tab3:
                     )
                     
                     if result.get("status") == "error":
-                        st.error(f"Research error: {result.get('error')}")
+                        error_msg = result.get("error", "Unknown error")
+                        st.error(f"Research error: {error_msg}")
+                        # Log the error for debugging
+                        print(f"Research API error: {error_msg}")
                     elif result.get("status") == "pending_approval":
                         st.success(f"Research complete! {len(result.get('insights', []))} insights ready for review.")
                         st.session_state.last_query_id = result.get("query_id")
+                        # Ensure we stay on the Research tab
+                        st.session_state.active_tab = 2
                     else:
                         st.success(f"Research complete! {result.get('stored_count', 0)} insights stored in memory.")
+                        # Ensure we stay on the Research tab
+                        st.session_state.active_tab = 2
                 except Exception as e:
+                    import traceback
+                    error_details = traceback.format_exc()
                     st.error(f"Error conducting research: {str(e)}")
+                    # Log the full error for debugging
+                    print(f"Research exception details: {error_details}")
     
     # Pending research section
     st.subheader("Pending Research")
