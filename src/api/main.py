@@ -1,7 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any, Union
 import json
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 from ..memory.manager import memory_manager
 from ..research.research_manager import research_manager
@@ -70,19 +75,26 @@ async def search_memories(
 
 @app.get("/memories/")
 async def list_memories(
+    request: Request,
     memory_type: Optional[str] = None,
     min_alignment: Optional[float] = None,
     tags: Optional[List[str]] = None
 ):
     """List all memories with optional filtering"""
+    logger.debug(f"list_memories called with memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}")
+    logger.debug(f"Request query params: {request.query_params}")
+    
     try:
+        logger.debug("Calling memory_manager.get_all_memories")
         memories = memory_manager.get_all_memories(
             memory_type=memory_type,
             min_alignment=min_alignment,
             tags=tags
         )
+        logger.debug(f"get_all_memories returned {len(memories)} memories")
         return {"memories": memories}
     except Exception as e:
+        logger.error(f"Error in list_memories: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/memories/{memory_id}")

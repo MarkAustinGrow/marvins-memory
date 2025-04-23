@@ -3,6 +3,12 @@ from qdrant_client.http import models
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
 import uuid
 from datetime import datetime
+import logging
+import json
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 from ..config import (
     QDRANT_HOST,
@@ -56,14 +62,23 @@ class QdrantManager:
     
     def get_all_memories(self, batch_size=100, filter=None):
         """Get all memories with pagination"""
+        logger.debug(f"get_all_memories called with filter: {json.dumps(filter) if filter else None}")
+        logger.debug(f"filter type: {type(filter)}")
+        
         offset = None
         while True:
-            results = self.client.scroll(
-                collection_name=COLLECTION_NAME,
-                limit=batch_size,
-                offset=offset,
-                filter=filter
-            )[0]  # scroll returns (points, next_offset)
+            try:
+                logger.debug(f"Calling scroll with filter: {json.dumps(filter) if filter else None}")
+                results = self.client.scroll(
+                    collection_name=COLLECTION_NAME,
+                    limit=batch_size,
+                    offset=offset,
+                    filter=filter
+                )[0]  # scroll returns (points, next_offset)
+                logger.debug(f"scroll returned {len(results) if results else 0} results")
+            except Exception as e:
+                logger.error(f"Error in scroll: {str(e)}")
+                break
             
             if not results:
                 break
