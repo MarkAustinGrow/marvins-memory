@@ -171,84 +171,13 @@ if 'active_tab' not in st.session_state:
 # Title
 st.title("🧠 Marvin's Neural Archive")
 
-# Main content
-tab_names = ["Memory Stream", "Search", "Research", "Analytics"]
+# Main content - Research tab first so it stays active on page reload
+tab_names = ["Research", "Memory Stream", "Search", "Analytics"]
 tab1, tab2, tab3, tab4 = st.tabs(tab_names)
 
-# Set the active tab based on session state
-active_tab = st.session_state.active_tab
-
-# Use JavaScript to click on the active tab
-js_code = f"""
-<script>
-    // Function to click on a tab
-    function clickTab(tabIndex) {{
-        const tabs = window.parent.document.querySelectorAll('.stTabs [data-baseweb="tab-list"] [role="tab"]');
-        if (tabs.length > tabIndex) {{
-            tabs[tabIndex].click();
-        }}
-    }}
-    
-    // Click on the active tab after a short delay to ensure the page is loaded
-    setTimeout(function() {{
-        clickTab({active_tab});
-    }}, 100);
-</script>
-"""
-st.components.v1.html(js_code, height=0)
+# We don't need the JavaScript tab selection anymore since Research is the first tab
 
 with tab1:
-    st.header("Recent Memories")
-    
-    # Get memories
-    try:
-        memories = run_async(api.list_memories)
-        
-        if not memories.get("memories"):
-            st.info("No memories found.")
-        else:
-            for memory in memories["memories"]:
-                st.write(f"**{memory['type'].upper()} | {memory['timestamp']}**")
-                st.write(memory['content'])
-                st.write(f"Tags: {', '.join(memory['tags'])}")
-                st.write(f"Alignment: {memory['alignment_score']:.2f}")
-                
-                if st.button(f"Delete Memory {memory['id']}", key=memory['id']):
-                    try:
-                        run_async(api.delete_memory, memory['id'])
-                        st.success("Memory deleted successfully")
-                        st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Error deleting memory: {str(e)}")
-                st.divider()
-    
-    except Exception as e:
-        st.error(f"Error loading memories: {str(e)}")
-
-with tab2:
-    st.header("Search Memories")
-    
-    search_query = st.text_input("Search Query")
-    search_limit = st.number_input("Result Limit", min_value=1, value=5)
-    
-    if search_query:
-        try:
-            results = run_async(api.search_memories, query=search_query, limit=search_limit)
-            
-            if not results.get("memories"):
-                st.info("No matching memories found.")
-            else:
-                for memory in results["memories"]:
-                    st.write(f"**{memory['type'].upper()} | {memory['timestamp']}**")
-                    st.write(memory['content'])
-                    st.write(f"Tags: {', '.join(memory['tags'])}")
-                    st.write(f"Alignment: {memory['alignment_score']:.2f} | Similarity: {memory['similarity_score']:.2f}")
-                    st.divider()
-        
-        except Exception as e:
-            st.error(f"Error searching memories: {str(e)}")
-
-with tab3:
     st.header("Research Assistant")
     
     # Research settings
@@ -273,8 +202,8 @@ with tab3:
         if not research_query:
             st.error("Please enter a research question")
         else:
-            # Set the active tab to Research (index 2)
-            st.session_state.active_tab = 2
+            # Set the active tab to Research (index 0 now)
+            st.session_state.active_tab = 0
             
             with st.spinner("Researching..."):
                 try:
@@ -292,11 +221,11 @@ with tab3:
                         st.success(f"Research complete! {len(result.get('insights', []))} insights ready for review.")
                         st.session_state.last_query_id = result.get("query_id")
                         # Ensure we stay on the Research tab
-                        st.session_state.active_tab = 2
+                        st.session_state.active_tab = 0
                     else:
                         st.success(f"Research complete! {result.get('stored_count', 0)} insights stored in memory.")
                         # Ensure we stay on the Research tab
-                        st.session_state.active_tab = 2
+                        st.session_state.active_tab = 0
                 except Exception as e:
                     import traceback
                     error_details = traceback.format_exc()
@@ -387,6 +316,57 @@ with tab3:
     
     except Exception as e:
         st.error(f"Error loading pending research: {str(e)}")
+
+with tab2:
+    st.header("Recent Memories")
+    
+    # Get memories
+    try:
+        memories = run_async(api.list_memories)
+        
+        if not memories.get("memories"):
+            st.info("No memories found.")
+        else:
+            for memory in memories["memories"]:
+                st.write(f"**{memory['type'].upper()} | {memory['timestamp']}**")
+                st.write(memory['content'])
+                st.write(f"Tags: {', '.join(memory['tags'])}")
+                st.write(f"Alignment: {memory['alignment_score']:.2f}")
+                
+                if st.button(f"Delete Memory {memory['id']}", key=memory['id']):
+                    try:
+                        run_async(api.delete_memory, memory['id'])
+                        st.success("Memory deleted successfully")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error deleting memory: {str(e)}")
+                st.divider()
+    
+    except Exception as e:
+        st.error(f"Error loading memories: {str(e)}")
+
+with tab3:
+    st.header("Search Memories")
+    
+    search_query = st.text_input("Search Query")
+    search_limit = st.number_input("Result Limit", min_value=1, value=5)
+    
+    if search_query:
+        try:
+            results = run_async(api.search_memories, query=search_query, limit=search_limit)
+            
+            if not results.get("memories"):
+                st.info("No matching memories found.")
+            else:
+                for memory in results["memories"]:
+                    st.write(f"**{memory['type'].upper()} | {memory['timestamp']}**")
+                    st.write(memory['content'])
+                    st.write(f"Tags: {', '.join(memory['tags'])}")
+                    st.write(f"Alignment: {memory['alignment_score']:.2f} | Similarity: {memory['similarity_score']:.2f}")
+                    st.divider()
+        
+        except Exception as e:
+            st.error(f"Error searching memories: {str(e)}")
 
 with tab4:
     st.header("Memory Analytics")
