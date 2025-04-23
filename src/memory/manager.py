@@ -128,7 +128,7 @@ class MemoryManager:
             )
         
         memories = []
-        async for batch in self.qdrant.get_all_memories(filter_conditions=filter_conditions):
+        for batch in self.qdrant.get_all_memories(filter_conditions=filter_conditions):
             memories.extend([
                 {
                     "id": point.id,
@@ -149,4 +149,4 @@ class MemoryManager:
         self.qdrant.delete_memory(memory_id)
 
 # Create singleton instance
-memory_manager = MemoryManager() 
+memory_manager = MemoryManager()

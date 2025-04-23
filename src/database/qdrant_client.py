@@ -13,7 +13,7 @@ from ..config import (
 
 class QdrantManager:
     def __init__(self):
-        self.client = QdrantClient(QDRANT_HOST, port=QDRANT_PORT)
+        self.client = QdrantClient(QDRANT_HOST, port=QDRANT_PORT, check_compatibility=False)
         self._ensure_collection_exists()
     
     def _ensure_collection_exists(self):
@@ -89,4 +89,4 @@ class QdrantManager:
         )
 
 # Create singleton instance
-qdrant = QdrantManager() 
+qdrant = QdrantManager()
