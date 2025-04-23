@@ -110,20 +110,30 @@ async def delete_memory(memory_id: str):
 @app.post("/research/")
 async def conduct_research(research: ResearchQuery):
     """Conduct research using Perplexity API"""
+    logger.debug(f"API endpoint: conduct_research called with query: {research.query}")
+    logger.debug(f"Auto-approve setting: {research.auto_approve}")
+    
     try:
+        logger.debug("Calling research_manager.conduct_research")
         result = await research_manager.conduct_research(
             query=research.query,
             auto_approve=research.auto_approve
         )
+        logger.debug(f"Research result status: {result.get('status')}")
         
         if result.get("status") == "error":
+            error_msg = result.get("error", "Unknown error")
+            logger.error(f"Research error: {error_msg}")
             raise HTTPException(
                 status_code=500,
-                detail=result.get("error", "Unknown error")
+                detail=error_msg
             )
         
+        logger.debug("Returning research result")
         return result
     except Exception as e:
+        logger.error(f"Unexpected error in conduct_research endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/research/")

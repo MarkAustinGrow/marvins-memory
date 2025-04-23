@@ -1,10 +1,14 @@
 from typing import List, Dict, Any, Optional
 import logging
+import traceback
 from datetime import datetime
 
 from ..config import RESEARCH_AUTO_APPROVE, RESEARCH_MAX_INSIGHTS
 from ..memory.manager import memory_manager
 from .perplexity_client import perplexity_client
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class ResearchManager:
     """Manager for research operations and integration with memory system"""
@@ -25,21 +29,30 @@ class ResearchManager:
         Returns:
             Dictionary with query ID, insights, and status
         """
+        logger.debug(f"Starting research for query: {query}")
+        
         # Determine if we should auto-approve
         should_auto_approve = auto_approve if auto_approve is not None else RESEARCH_AUTO_APPROVE
+        logger.debug(f"Auto-approve setting: {should_auto_approve}")
         
         try:
+            logger.debug("Querying Perplexity API...")
             # Query Perplexity API
             response = await self.perplexity_client.query(query)
+            logger.debug("Perplexity API query successful")
             
+            logger.debug("Extracting insights from response...")
             # Extract insights
             insights = await self.perplexity_client.extract_insights(response)
+            logger.debug(f"Extracted {len(insights)} insights")
             
             # Generate a query ID
             query_id = f"research_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            logger.debug(f"Generated query ID: {query_id}")
             
             # Store insights for later approval if not auto-approving
             if not should_auto_approve:
+                logger.debug("Storing insights for later approval")
                 self.pending_insights[query_id] = {
                     "query": query,
                     "insights": insights,
@@ -47,6 +60,7 @@ class ResearchManager:
                     "raw_response": response
                 }
                 
+                logger.debug("Returning pending approval status")
                 return {
                     "query_id": query_id,
                     "insights": insights,
@@ -55,9 +69,12 @@ class ResearchManager:
                     "count": len(insights)
                 }
             
+            logger.debug("Auto-approving insights")
             # Auto-approve: store insights directly
             stored_memories = await self._store_insights(query, insights)
+            logger.debug(f"Stored {len(stored_memories)} memories")
             
+            logger.debug("Returning stored status")
             return {
                 "query_id": query_id,
                 "insights": insights,
@@ -68,7 +85,8 @@ class ResearchManager:
             }
             
         except Exception as e:
-            logging.error(f"Error conducting research: {e}")
+            logger.error(f"Error conducting research: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return {
                 "status": "error",
                 "error": str(e)
@@ -175,27 +193,43 @@ class ResearchManager:
         Returns:
             List of stored memories
         """
-        # Format insights for memory storage
-        memories = await self.perplexity_client.format_for_memory(insights)
-        
-        # Store each memory
-        stored_memories = []
-        for memory in memories:
-            memory_id = await self.memory_manager.store_memory(
-                content=memory["content"],
-                memory_type=memory["type"],
-                source=memory["source"],
-                tags=memory["tags"]
-            )
+        logger.debug(f"Formatting {len(insights)} insights for memory storage")
+        try:
+            # Format insights for memory storage
+            memories = await self.perplexity_client.format_for_memory(insights)
+            logger.debug(f"Formatted {len(memories)} memories")
             
-            if memory_id:
-                stored_memories.append({
-                    "id": memory_id,
-                    "content": memory["content"],
-                    "type": memory["type"]
-                })
-        
-        return stored_memories
+            # Store each memory
+            stored_memories = []
+            for i, memory in enumerate(memories):
+                logger.debug(f"Storing memory {i+1}/{len(memories)}")
+                try:
+                    memory_id = await self.memory_manager.store_memory(
+                        content=memory["content"],
+                        memory_type=memory["type"],
+                        source=memory["source"],
+                        tags=memory["tags"]
+                    )
+                    
+                    if memory_id:
+                        logger.debug(f"Successfully stored memory with ID: {memory_id}")
+                        stored_memories.append({
+                            "id": memory_id,
+                            "content": memory["content"][:100] + "..." if len(memory["content"]) > 100 else memory["content"],
+                            "type": memory["type"]
+                        })
+                    else:
+                        logger.warning(f"Memory {i+1} was not stored (failed alignment check)")
+                except Exception as e:
+                    logger.error(f"Error storing memory {i+1}: {str(e)}")
+                    logger.error(traceback.format_exc())
+            
+            logger.debug(f"Successfully stored {len(stored_memories)} out of {len(memories)} memories")
+            return stored_memories
+        except Exception as e:
+            logger.error(f"Error in _store_insights: {str(e)}")
+            logger.error(traceback.format_exc())
+            return []
 
 # Create singleton instance
 research_manager = ResearchManager()

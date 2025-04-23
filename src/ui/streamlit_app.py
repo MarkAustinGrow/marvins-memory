@@ -6,22 +6,34 @@ import plotly.express as px
 import pandas as pd
 import asyncio
 
+# Global event loop for async operations
+_global_event_loop = None
+
 # Helper function to run async functions safely in Streamlit
 def run_async(async_func, *args, **kwargs):
+    global _global_event_loop
+    
     try:
-        # Create a new event loop for each async operation
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(async_func(*args, **kwargs))
+        # Use a global event loop to prevent "Event loop is closed" errors
+        if _global_event_loop is None or _global_event_loop.is_closed():
+            _global_event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_global_event_loop)
+        
+        # Run the async function in the event loop
+        if _global_event_loop.is_running():
+            # If the loop is already running, we need to use a different approach
+            # This is a workaround for nested async calls
+            future = asyncio.run_coroutine_threadsafe(async_func(*args, **kwargs), _global_event_loop)
+            return future.result()
+        else:
+            return _global_event_loop.run_until_complete(async_func(*args, **kwargs))
+    
     except Exception as e:
         st.error(f"Async operation error: {str(e)}")
+        # Log the full exception for debugging
+        import traceback
+        print(f"Async error details: {traceback.format_exc()}")
         raise e
-    finally:
-        # Clean up the loop
-        if loop.is_running():
-            loop.stop()
-        if not loop.is_closed():
-            loop.close()
 
 # Configure page
 st.set_page_config(
