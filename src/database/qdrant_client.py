@@ -51,7 +51,7 @@ class QdrantManager:
             collection_name=COLLECTION_NAME,
             query_vector=query_vector,
             limit=limit,
-            query_filter=filter_conditions
+            filter=filter_conditions
         )
     
     def get_all_memories(self, batch_size=100, filter=None):

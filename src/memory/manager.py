@@ -67,19 +67,24 @@ class MemoryManager:
         # Prepare filters
         filter_conditions = {
             "must": [
-                {"range": {"persona_alignment_score": {"gte": min_alignment}}}
+                {
+                    "key": "persona_alignment_score",
+                    "range": {"gte": min_alignment}
+                }
             ]
         }
         
         if memory_type:
-            filter_conditions["must"].append(
-                {"match": {"type": memory_type}}
-            )
+            filter_conditions["must"].append({
+                "key": "type",
+                "match": {"value": memory_type}
+            })
         
         if tags:
-            filter_conditions["must"].append(
-                {"match": {"tags": tags}}
-            )
+            filter_conditions["must"].append({
+                "key": "tags",
+                "match": {"value": tags}
+            })
         
         # Query Qdrant
         results = self.qdrant.query_memories(
@@ -113,19 +118,24 @@ class MemoryManager:
         """
         filter_conditions = {
             "must": [
-                {"range": {"persona_alignment_score": {"gte": min_alignment}}}
+                {
+                    "key": "persona_alignment_score",
+                    "range": {"gte": min_alignment}
+                }
             ]
         }
         
         if memory_type:
-            filter_conditions["must"].append(
-                {"match": {"type": memory_type}}
-            )
+            filter_conditions["must"].append({
+                "key": "type",
+                "match": {"value": memory_type}
+            })
         
         if tags:
-            filter_conditions["must"].append(
-                {"match": {"tags": tags}}
-            )
+            filter_conditions["must"].append({
+                "key": "tags",
+                "match": {"value": tags}
+            })
         
         memories = []
         for batch in self.qdrant.get_all_memories(filter=filter_conditions):
