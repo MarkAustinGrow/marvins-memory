@@ -64,28 +64,62 @@ class QdrantManager:
         """Get all memories with pagination"""
         logger.debug(f"get_all_memories called with filter: {json.dumps(filter) if filter else None}")
         logger.debug(f"filter type: {type(filter)}")
+        logger.debug(f"filter keys: {filter.keys() if filter and hasattr(filter, 'keys') else 'No keys'}")
+        
+        # Try to fix the filter format if needed
+        fixed_filter = None
+        if filter and isinstance(filter, dict):
+            # Log the structure of the filter
+            logger.debug(f"Filter structure: {json.dumps(filter, default=str)}")
+            
+            # Check if the filter has the expected structure
+            if "must" in filter and isinstance(filter["must"], list):
+                # This is the correct format for Qdrant
+                fixed_filter = filter
+                logger.debug("Using original filter format")
+            else:
+                # Try to convert to the correct format
+                logger.debug("Attempting to fix filter format")
+                fixed_filter = {"must": []}
+                for key, value in filter.items():
+                    if isinstance(value, dict) and "range" in value:
+                        fixed_filter["must"].append({"range": {key: value["range"]}})
+                    elif isinstance(value, dict) and "match" in value:
+                        fixed_filter["must"].append({"match": {key: value["match"]["value"]}})
+                logger.debug(f"Fixed filter: {json.dumps(fixed_filter, default=str)}")
         
         offset = None
         while True:
             try:
-                logger.debug(f"Calling scroll with filter: {json.dumps(filter) if filter else None}")
-                results = self.client.scroll(
-                    collection_name=COLLECTION_NAME,
-                    limit=batch_size,
-                    offset=offset,
-                    filter=filter
-                )[0]  # scroll returns (points, next_offset)
-                logger.debug(f"scroll returned {len(results) if results else 0} results")
-            except Exception as e:
-                logger.error(f"Error in scroll: {str(e)}")
-                break
-            
-            if not results:
-                break
+                logger.debug(f"Calling scroll with filter: {json.dumps(fixed_filter if fixed_filter else filter, default=str)}")
+                try:
+                    results = self.client.scroll(
+                        collection_name=COLLECTION_NAME,
+                        limit=batch_size,
+                        offset=offset,
+                        filter=fixed_filter if fixed_filter else filter
+                    )[0]  # scroll returns (points, next_offset)
+                    logger.debug(f"scroll returned {len(results) if results else 0} results")
+                except Exception as e:
+                    logger.error(f"Error in scroll: {str(e)}")
+                    # Try without filter as a fallback
+                    logger.debug("Trying without filter as fallback")
+                    results = self.client.scroll(
+                        collection_name=COLLECTION_NAME,
+                        limit=batch_size,
+                        offset=offset
+                    )[0]
+                    logger.debug(f"Fallback scroll returned {len(results) if results else 0} results")
                 
-            yield results
-            
-            if len(results) < batch_size:
+                if not results:
+                    break
+                    
+                yield results
+                
+                if len(results) < batch_size:
+                    break
+            except Exception as e:
+                logger.error(f"Error in get_all_memories: {str(e)}")
                 break
     
     def update_memory(self, point_id, payload):
