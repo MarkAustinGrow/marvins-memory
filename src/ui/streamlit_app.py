@@ -6,27 +6,27 @@ import plotly.express as px
 import pandas as pd
 import asyncio
 
-# Global event loop for async operations
-_global_event_loop = None
-
 # Helper function to run async functions safely in Streamlit
 def run_async(async_func, *args, **kwargs):
-    global _global_event_loop
+    """
+    Run an async function safely in Streamlit.
     
+    This function creates a new event loop for each call to avoid issues with
+    Streamlit's reactive programming model, where the app reruns on state changes.
+    """
     try:
-        # Use a global event loop to prevent "Event loop is closed" errors
-        if _global_event_loop is None or _global_event_loop.is_closed():
-            _global_event_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(_global_event_loop)
+        # Always create a new event loop for each call to avoid conflicts
+        # This is safer in Streamlit's environment where the app can rerun at any time
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        # Run the async function in the event loop
-        if _global_event_loop.is_running():
-            # If the loop is already running, we need to use a different approach
-            # This is a workaround for nested async calls
-            future = asyncio.run_coroutine_threadsafe(async_func(*args, **kwargs), _global_event_loop)
-            return future.result()
-        else:
-            return _global_event_loop.run_until_complete(async_func(*args, **kwargs))
+        # Run the async function in the new event loop
+        result = loop.run_until_complete(async_func(*args, **kwargs))
+        
+        # Clean up
+        loop.close()
+        
+        return result
     
     except httpx.HTTPStatusError as e:
         # Handle HTTP errors (e.g., 400, 500) with more detailed messages
@@ -62,6 +62,25 @@ def run_async(async_func, *args, **kwargs):
         print(f"Timeout Error")
         print(f"Traceback: {traceback.format_exc()}")
         return {"status": "error", "error": error_msg}
+    
+    except RuntimeError as e:
+        # Specifically handle event loop errors
+        error_str = str(e)
+        if "is bound to a different event loop" in error_str:
+            error_msg = "Event loop error detected. This is usually caused by Streamlit's rerun behavior. Please try again."
+            st.error(error_msg)
+            import traceback
+            print(f"Event loop error: {error_str}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return {"status": "error", "error": error_msg}
+        else:
+            # Handle other runtime errors
+            error_msg = f"Runtime Error: {error_str}"
+            st.error(error_msg)
+            import traceback
+            print(f"Runtime error: {error_msg}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return {"status": "error", "error": error_msg}
     
     except Exception as e:
         # Handle all other exceptions
