@@ -102,7 +102,7 @@ class MemoryManager:
             for point in results
         ]
     
-    async def get_all_memories(
+    def get_all_memories(
         self,
         memory_type: Optional[str] = None,
         min_alignment: float = MIN_ALIGNMENT_SCORE,

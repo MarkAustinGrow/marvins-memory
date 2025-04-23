@@ -76,7 +76,7 @@ async def list_memories(
 ):
     """List all memories with optional filtering"""
     try:
-        memories = await memory_manager.get_all_memories(
+        memories = memory_manager.get_all_memories(
             memory_type=memory_type,
             min_alignment=min_alignment,
             tags=tags
