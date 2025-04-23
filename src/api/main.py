@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any, Union
 import json
 import logging
+import traceback
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)

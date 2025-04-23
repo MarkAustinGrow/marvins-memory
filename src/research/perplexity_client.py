@@ -43,7 +43,7 @@ class PerplexityClient:
             "Content-Type": "application/json"
         }
     
-    async def query(self, question: str, model: str = "pplx-70b-online", max_retries: int = 3, timeout: int = 30) -> Dict[str, Any]:
+    async def query(self, question: str, model: str = "sonar", max_retries: int = 3, timeout: int = 30) -> Dict[str, Any]:
         """
         Send a query to the Perplexity API
         
@@ -121,10 +121,15 @@ class PerplexityClient:
                     error_msg = f"Perplexity API error: {response.status_code}"
                     try:
                         error_data = response.json()
+                        # Handle different error formats
                         if "error" in error_data:
                             error_msg += f" - {error_data['error']}"
-                    except:
-                        pass
+                        elif "message" in error_data:
+                            error_msg += f" - {error_data}"
+                        elif isinstance(error_data, dict):
+                            error_msg += f" - {json.dumps(error_data)}"
+                    except Exception as e:
+                        logger.warning(f"Could not parse error response: {str(e)}")
                     logger.error(error_msg)
                     raise PerplexityError(error_msg)
                     
@@ -172,23 +177,46 @@ class PerplexityClient:
             List of extracted insights with metadata
         """
         logger.debug("Extracting insights from Perplexity response")
+        logger.debug(f"Response keys: {list(response.keys())}")
         
         try:
             # Validate response structure
             if not response:
                 logger.warning("Empty response received")
                 return []
-                
-            if not response.get("choices"):
-                logger.warning("No choices in response")
-                return []
-                
-            if not response["choices"][0].get("message"):
-                logger.warning("No message in first choice")
-                return []
             
-            content = response["choices"][0]["message"]["content"]
+            # Extract content from response based on API structure
+            content = None
             query = response.get("query", "Unknown query")
+            
+            # Try different response structures
+            if response.get("choices") and response["choices"] and response["choices"][0].get("message"):
+                # Standard OpenAI-like format
+                content = response["choices"][0]["message"]["content"]
+                logger.debug("Found content in standard OpenAI-like format")
+            elif response.get("message") and response["message"].get("content"):
+                # Direct message format
+                content = response["message"]["content"]
+                logger.debug("Found content in direct message format")
+            elif response.get("content"):
+                # Simple content format
+                content = response["content"]
+                logger.debug("Found content in simple content format")
+            elif response.get("text"):
+                # Simple text format
+                content = response["text"]
+                logger.debug("Found content in simple text format")
+            else:
+                # Try to find any text field that might contain the content
+                for key, value in response.items():
+                    if isinstance(value, str) and len(value) > 100:
+                        content = value
+                        logger.debug(f"Found potential content in field: {key}")
+                        break
+                
+                if not content:
+                    logger.warning(f"Could not find content in response: {json.dumps(response)[:200]}...")
+                    return []
             
             logger.debug(f"Extracting insights from content of length {len(content)}")
             
