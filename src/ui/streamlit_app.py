@@ -301,7 +301,7 @@ with tab1:
                                                 st.error(f"Error: {result.get('error')}")
                                             else:
                                                 st.success(f"{result.get('stored_count', 0)} insights stored in memory")
-                                                st.experimental_rerun()
+                                                st.rerun()
                                         except Exception as e:
                                             st.error(f"Error approving insights: {str(e)}")
                         
@@ -310,7 +310,7 @@ with tab1:
                                 try:
                                     run_async(api.reject_research, query_id)
                                     st.success("Research rejected")
-                                    st.experimental_rerun()
+                                    st.rerun()
                                 except Exception as e:
                                     st.error(f"Error rejecting research: {str(e)}")
     
@@ -337,7 +337,7 @@ with tab2:
                     try:
                         run_async(api.delete_memory, memory['id'])
                         st.success("Memory deleted successfully")
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error deleting memory: {str(e)}")
                 st.divider()
