@@ -12,8 +12,24 @@ logger = logging.getLogger(__name__)
 from ..memory.manager import memory_manager
 from ..research.research_manager import research_manager
 from ..config import RESEARCH_AUTO_APPROVE
+from ..tweet_processor.processor import tweet_processor
+from ..tweet_processor.scheduler import tweet_scheduler
 
 app = FastAPI(title="Marvin's Memory System")
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize components on application startup"""
+    # Start the tweet processor scheduler
+    tweet_scheduler.start()
+    logger.info("Tweet processor scheduler started")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on application shutdown"""
+    # Shutdown the tweet processor scheduler
+    tweet_scheduler.shutdown()
+    logger.info("Tweet processor scheduler shutdown")
 
 # Models for research endpoints
 class ResearchQuery(BaseModel):
@@ -218,3 +234,26 @@ async def get_research_settings():
     return {
         "auto_approve": RESEARCH_AUTO_APPROVE
     }
+
+# Tweet processing endpoints
+@app.post("/tweets/process")
+async def process_tweets(
+    request: Request,
+    limit: int = 10,
+    min_engagement: float = 0.7
+):
+    """Manually trigger tweet processing"""
+    
+    logger.debug(f"Manual tweet processing triggered (limit={limit}, min_engagement={min_engagement})")
+    
+    try:
+        result = await tweet_processor.process_tweets_batch(
+            limit=limit,
+            min_engagement=min_engagement
+        )
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in process_tweets endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))

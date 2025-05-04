@@ -6,7 +6,16 @@ Marvin's Memory is an AI-powered memory management system that stores, organizes
 
 ## Key Features
 
-### 1. Research Assistant
+### 1. Tweet Processor
+
+- **Automated Tweet Research**: Automatically research tweets from the tweets_cache table
+- **Engagement-Based Selection**: Process high-engagement tweets first
+- **Cultural Context Analysis**: Analyze tweets for cultural and artistic context
+- **Scheduled Processing**: Automatically process tweets every 6 hours
+- **Manual Triggering**: Manually trigger tweet processing via API
+- **Character-Aligned Insights**: Ensure all insights align with Marvin's persona
+
+### 2. Research Assistant
 
 - **Automated Research**: Conduct research on any topic using Perplexity AI
 - **Insight Extraction**: Automatically extract key insights from research results
@@ -42,6 +51,8 @@ Marvin's Memory is an AI-powered memory management system that stores, organizes
 - **Character Alignment**: Ensures all content aligns with Marvin's persona
 - **Robust Architecture**: Centralized state management and error handling
 - **Caching System**: Optimized performance with smart caching
+- **Scheduled Tasks**: Automated processing with APScheduler
+- **Supabase Integration**: Seamless connection to tweets_cache table
 
 ## User Interface
 
@@ -64,3 +75,5 @@ Marvin's Memory is an AI-powered memory management system that stores, organizes
 - Use tags consistently to improve organization
 - Check the Analytics tab periodically to understand memory distribution
 - Use search with natural language questions for best results
+- Ensure tweets have appropriate engagement scores for processing
+- Monitor the tweet processor logs for any issues

@@ -9,6 +9,9 @@ A neural memory system for Marvin, powered by Qdrant vector database and OpenAI 
 - 📊 Memory analytics and visualization
 - 🎯 Automatic alignment scoring
 - 🏷️ Tag-based organization
+- 🐦 Automated tweet research and memory creation
+- 🧠 Perplexity AI integration for deep insights
+- ⏱️ Scheduled processing of high-engagement tweets
 
 ## Tech Stack
 
@@ -31,6 +34,7 @@ cd marvin-memory
 QDRANT_HOST=qdrant
 QDRANT_PORT=6333
 OPENAI_API_KEY=your_openai_api_key
+PERPLEXITY_API_KEY=your_perplexity_api_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_key
 ```
@@ -81,4 +85,4 @@ docker-compose up -d
 
 ## License
 
-MIT License 
+MIT License

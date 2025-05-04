@@ -27,6 +27,7 @@ src/
 ├── database/      # Database connections and models
 ├── embeddings/    # Embedding generation and management
 ├── memory/        # Memory management and retrieval logic
+├── tweet_processor/ # Tweet processing and research automation
 ├── ui/            # Streamlit interface components
 └── config.py      # Application configuration
 ```
@@ -133,6 +134,13 @@ Each memory entry contains:
 - Memory retrieval and search
 - Content embedding and storage
 - Memory management operations
+- Tweet processing and research
+
+### Scheduled Tasks
+- Tweet processing runs every 6 hours
+- Selects high-engagement tweets from tweets_cache
+- Researches tweets using Perplexity AI
+- Stores insights in memory with character alignment
 
 ### UI Components
 - Memory inspection and management
@@ -170,6 +178,10 @@ docker-compose logs -f
 Key environment variables:
 - `QDRANT_HOST`: Vector database host
 - `QDRANT_PORT`: Vector database port
+- `OPENAI_API_KEY`: OpenAI API key for embeddings
+- `PERPLEXITY_API_KEY`: Perplexity API key for research
+- `SUPABASE_URL`: Supabase URL for metadata and tweets_cache
+- `SUPABASE_KEY`: Supabase API key
 - Additional configuration in .env file
 
 ## Best Practices
@@ -204,7 +216,15 @@ See `Roadmap.md` for detailed development plans and milestones.
 ## Troubleshooting
 
 ### Common Issues
-1. Qdrant connection timeouts
+1. Tweet processing issues
+   - Check Supabase connection to tweets_cache table
+   - Verify Perplexity API key and quota
+   - Ensure tweets have engagement scores
+   - Check scheduler is running (logs should show "Tweet processor scheduler started")
+   - Look for "Starting scheduled tweet processing" in logs
+   - Try manual processing with the test script or API endpoint
+
+2. Qdrant connection timeouts
    - Verify Qdrant server accessibility
    - Check network configuration
    - Validate credentials
