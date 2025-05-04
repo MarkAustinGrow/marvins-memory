@@ -142,6 +142,15 @@ class AppState:
     def search_memories(self, query, limit=5):
         """Search memories"""
         return self.async_manager.run_async(self.api.search_memories, query=query, limit=limit)
+    
+    def process_tweets(self, limit=10, min_engagement=0.5):
+        """Process tweets with custom engagement threshold"""
+        result = self.async_manager.run_async(self.api.process_tweets, limit=limit, min_engagement=min_engagement)
+        
+        # Invalidate memories cache as new memories might be created
+        self._memories_cache = None
+        
+        return result
 
 
 class AsyncManager:
@@ -394,6 +403,16 @@ class MemoryAPI:
         client = self.async_manager.get_client()
         response = await client.get("/settings/research")
         return response.json()
+    
+    # Tweet processing methods
+    async def process_tweets(self, limit=10, min_engagement=0.5):
+        """Process tweets with custom engagement threshold"""
+        client = self.async_manager.get_client()
+        response = await client.post("/tweets/process", params={
+            "limit": limit,
+            "min_engagement": min_engagement
+        })
+        return response.json()
 
 # Initialize application state
 @st.cache_resource
@@ -411,8 +430,8 @@ if 'active_tab' not in st.session_state:
 st.title("🧠 Marvin's Neural Archive")
 
 # Main content - Research tab first so it stays active on page reload
-tab_names = ["Research", "Memory Stream", "Search", "Analytics"]
-tab1, tab2, tab3, tab4 = st.tabs(tab_names)
+tab_names = ["Research", "Memory Stream", "Search", "Analytics", "Tweet Processing"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(tab_names)
 
 # We don't need the JavaScript tab selection anymore since Research is the first tab
 
@@ -678,3 +697,86 @@ with tab4:
     
     except Exception as e:
         st.error(f"Error generating analytics: {str(e)}")
+
+with tab5:
+    st.header("Tweet Processing")
+    
+    # Add explanation
+    st.markdown("""
+    <div style="padding: 10px; border-radius: 5px; background-color: #f8f9fa; margin-bottom: 20px;">
+        <strong>About Tweet Processing:</strong> This tool allows you to manually process tweets from the tweets_cache table 
+        with a custom engagement threshold. The default threshold in the scheduler is 0.7, which might be too strict.
+        Lowering this value will allow more tweets to be processed and potentially stored as memories.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Settings
+    st.subheader("Processing Settings")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        min_engagement = st.slider(
+            "Minimum Engagement Score", 
+            min_value=0.0, 
+            max_value=1.0, 
+            value=0.5,
+            step=0.05,
+            help="Lower values will include more tweets, higher values are more selective"
+        )
+    
+    with col2:
+        tweet_limit = st.number_input(
+            "Maximum Tweets to Process",
+            min_value=1,
+            max_value=50,
+            value=10,
+            help="Number of tweets to process in this batch"
+        )
+    
+    # Process button
+    if st.button("Process Tweets", type="primary"):
+        with st.spinner("Processing tweets..."):
+            try:
+                result = app_state.process_tweets(
+                    limit=tweet_limit,
+                    min_engagement=min_engagement
+                )
+                
+                if result.get("status") == "error":
+                    error_msg = result.get("error", "Unknown error")
+                    st.error(f"Processing error: {error_msg}")
+                else:
+                    processed_count = result.get("processed_count", 0)
+                    failed_count = result.get("failed_count", 0)
+                    
+                    if processed_count > 0:
+                        st.success(f"Successfully processed {processed_count} tweets ({failed_count} failed)")
+                        
+                        # Show details
+                        if "results" in result:
+                            st.subheader("Processing Results")
+                            for i, tweet_result in enumerate(result["results"]):
+                                st.write(f"Tweet {i+1}: {tweet_result['tweet_id']} - {tweet_result['memory_count']} memories created")
+                    else:
+                        st.info(f"No tweets were processed. {result.get('message', '')}")
+                        
+                        # Show a hint about lowering the threshold
+                        if min_engagement > 0.1:
+                            st.info("Try lowering the engagement threshold further to find more tweets.")
+            except Exception as e:
+                st.error(f"Error processing tweets: {str(e)}")
+    
+    # Add information about the current scheduler settings
+    st.subheader("Scheduler Information")
+    st.markdown("""
+    <div style="padding: 10px; border-radius: 5px; background-color: #f0f7ff; margin-top: 20px;">
+        <strong>Current Scheduler Settings:</strong>
+        <ul>
+            <li>The tweet processor runs automatically every 6 hours</li>
+            <li>Default engagement threshold: 0.7</li>
+            <li>Default tweet limit: 10 tweets per batch</li>
+        </ul>
+        <p>Use this manual processing tool when you want to process tweets with a lower threshold.</p>
+    </div>
+    """, unsafe_allow_html=True)
