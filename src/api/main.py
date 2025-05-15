@@ -239,17 +239,15 @@ async def get_research_settings():
 @app.post("/tweets/process")
 async def process_tweets(
     request: Request,
-    limit: int = 10,
-    min_engagement: float = 0.7
+    limit: int = 10
 ):
     """Manually trigger tweet processing"""
     
-    logger.debug(f"Manual tweet processing triggered (limit={limit}, min_engagement={min_engagement})")
+    logger.debug(f"Manual tweet processing triggered (limit={limit})")
     
     try:
         result = await tweet_processor.process_tweets_batch(
-            limit=limit,
-            min_engagement=min_engagement
+            limit=limit
         )
         
         return result

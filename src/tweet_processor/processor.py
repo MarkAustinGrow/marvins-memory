@@ -21,18 +21,17 @@ class TweetProcessor:
         self.research_manager = research_manager
         self.memory_manager = memory_manager
     
-    async def get_candidate_tweets(self, limit: int = 10, min_engagement: float = 0.7) -> List[Dict[str, Any]]:
+    async def get_candidate_tweets(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get candidate tweets for processing"""
         
-        logger.debug(f"Fetching candidate tweets with min_engagement={min_engagement}, limit={limit}")
+        logger.debug(f"Fetching candidate tweets with limit={limit}")
         
         try:
-            # Query tweets_cache table for unprocessed tweets with high engagement
+            # Query tweets_cache table for unprocessed tweets without engagement filter
             response = self.supabase.table("tweets_cache") \
                 .select("id,tweet_id,tweet_text,tweet_url,engagement_score,public_metrics,vibe_tags,created_at") \
                 .is_("processed_at", "null") \
-                .gte("engagement_score", min_engagement) \
-                .order("engagement_score", desc=True) \
+                .order("created_at", desc=True) \
                 .limit(limit) \
                 .execute()
             
@@ -185,13 +184,13 @@ class TweetProcessor:
             logger.error(f"Error updating tweet status: {str(e)}")
             return False
     
-    async def process_tweets_batch(self, limit: int = 10, min_engagement: float = 0.7) -> Dict[str, Any]:
+    async def process_tweets_batch(self, limit: int = 10) -> Dict[str, Any]:
         """Process a batch of tweets from cache"""
         
-        logger.info(f"Starting batch processing of tweets (limit={limit}, min_engagement={min_engagement})")
+        logger.info(f"Starting batch processing of tweets (limit={limit})")
         
         # 1. Select candidate tweets
-        tweets = await self.get_candidate_tweets(limit=limit, min_engagement=min_engagement)
+        tweets = await self.get_candidate_tweets(limit=limit)
         
         if not tweets:
             return {"status": "success", "processed_count": 0, "message": "No tweets to process"}
@@ -216,7 +215,7 @@ class TweetProcessor:
                 logger.debug(f"Alignment explanation: {alignment.get('explanation', 'No explanation')}")
                 
                 # Skip tweets that don't align well with character
-                if alignment.get("alignment_score", 0) < MIN_ALIGNMENT_SCORE:
+                if alignment.get("alignment_score", 0) < 0.75:  # Changed from MIN_ALIGNMENT_SCORE to 0.75
                     logger.info(f"Skipping tweet {tweet['id']} due to low alignment score: {alignment.get('alignment_score', 0)}")
                     # Mark as processed but with no memories
                     await self.update_tweet_status(tweet["id"], [])

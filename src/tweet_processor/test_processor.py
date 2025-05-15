@@ -28,8 +28,7 @@ async def test_tweet_processor():
     try:
         # Process a batch of tweets
         result = await tweet_processor.process_tweets_batch(
-            limit=5,  # Process up to 5 tweets
-            min_engagement=0.5  # Lower threshold for testing
+            limit=5  # Process up to 5 tweets
         )
         
         logger.info(f"Test result: {json.dumps(result, indent=2)}")
@@ -37,14 +36,13 @@ async def test_tweet_processor():
         if result["processed_count"] == 0:
             logger.info("No tweets were processed. This could be because:")
             logger.info("1. There are no unprocessed tweets in the tweets_cache table")
-            logger.info("2. No tweets met the minimum engagement threshold")
+            logger.info("2. No tweets met the alignment threshold")
             logger.info("3. There was an error connecting to the tweets_cache table")
             
             # Check if we can connect to the tweets_cache table
             try:
                 tweets = await tweet_processor.get_candidate_tweets(
-                    limit=5,
-                    min_engagement=0.0  # No engagement threshold for this test
+                    limit=5
                 )
                 
                 if tweets:

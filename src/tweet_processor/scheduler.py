@@ -33,7 +33,7 @@ class TweetProcessorScheduler:
         logger.info("Starting scheduled tweet processing")
         
         try:
-            result = await tweet_processor.process_tweets_batch(limit=10, min_engagement=0.7)
+            result = await tweet_processor.process_tweets_batch(limit=10)
             logger.info(f"Processed {result['processed_count']} tweets, {result['failed_count']} failed")
         except Exception as e:
             logger.error(f"Error in scheduled tweet processing: {str(e)}")
