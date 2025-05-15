@@ -169,14 +169,18 @@ class TweetProcessor:
         logger.debug(f"Updating status for tweet {tweet_id} with {len(memory_ids)} memories")
         
         try:
-            # Update the tweet record
+            # Update only the archived field to avoid schema cache issues
+            # We'll skip updating memory_ids for now until the schema cache refreshes
             response = self.supabase.table("tweets_cache") \
                 .update({
-                    "archived": True,
-                    "memory_ids": json.dumps(memory_ids)
+                    "archived": True
                 }) \
                 .eq("id", tweet_id) \
                 .execute()
+            
+            # Log the memory IDs that would have been stored
+            if memory_ids:
+                logger.info(f"Memory IDs for tweet {tweet_id} (not stored due to schema cache): {memory_ids}")
             
             return True
             
