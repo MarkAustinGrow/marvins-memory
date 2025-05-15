@@ -204,52 +204,68 @@ class TweetProcessor:
                 # We don't need to check if tweet has already been processed
                 # since we're now filtering by archived=False in get_candidate_tweets
                 
-                # 2. Evaluate tweet alignment with character
-                tweet_text = tweet.get("tweet_text", "")
-                alignment = await memory_manager.character_manager.evaluate_alignment(tweet_text)
+                # Initialize variables
+                alignment = {"alignment_score": 0, "matched_aspects": [], "explanation": "Not evaluated"}
+                memory_ids = []
+                should_mark_archived = True
                 
-                # Log alignment result
-                logger.info(f"Tweet alignment: score={alignment.get('alignment_score', 0)}, aspects={alignment.get('matched_aspects', [])}")
-                logger.debug(f"Alignment explanation: {alignment.get('explanation', 'No explanation')}")
+                try:
+                    # 2. Evaluate tweet alignment with character
+                    tweet_text = tweet.get("tweet_text", "")
+                    alignment = memory_manager.character_manager.evaluate_alignment(tweet_text)
+                    
+                    # Log alignment result
+                    logger.info(f"Tweet alignment: score={alignment.get('alignment_score', 0)}, aspects={alignment.get('matched_aspects', [])}")
+                    logger.debug(f"Alignment explanation: {alignment.get('explanation', 'No explanation')}")
+                    
+                    # Skip tweets that don't align well with character
+                    if alignment.get("alignment_score", 0) < 0.75:  # Changed from MIN_ALIGNMENT_SCORE to 0.75
+                        logger.info(f"Skipping tweet {tweet['id']} due to low alignment score: {alignment.get('alignment_score', 0)}")
+                        # Continue with marking as archived but with no memories
+                    else:
+                        # 3. Research tweet content
+                        research_result = await self.research_tweet(tweet)
+                        
+                        if research_result.get("status") == "error":
+                            logger.error(f"Research failed for tweet {tweet['id']}: {research_result.get('error')}")
+                        else:
+                            # 4. Process insights into memories
+                            memory_ids = await self.process_insights(research_result, tweet)
                 
-                # Skip tweets that don't align well with character
-                if alignment.get("alignment_score", 0) < 0.75:  # Changed from MIN_ALIGNMENT_SCORE to 0.75
-                    logger.info(f"Skipping tweet {tweet['id']} due to low alignment score: {alignment.get('alignment_score', 0)}")
-                    # Mark as processed but with no memories
-                    await self.update_tweet_status(tweet["id"], [])
-                    continue
+                except Exception as e:
+                    logger.error(f"Error in tweet processing pipeline for tweet {tweet['id']}: {str(e)}")
+                    # Continue with marking as archived
                 
-                # 3. Research tweet content
-                research_result = await self.research_tweet(tweet)
-                
-                if research_result.get("status") == "error":
-                    logger.error(f"Research failed for tweet {tweet['id']}: {research_result.get('error')}")
-                    failed_count += 1
-                    continue
-                
-                # 4. Process insights into memories
-                memory_ids = await self.process_insights(research_result, tweet)
-                
-                # 5. Update tweet status
-                success = await self.update_tweet_status(tweet["id"], memory_ids)
-                
-                if success:
-                    processed_count += 1
-                    results.append({
-                        "tweet_id": tweet["tweet_id"],
-                        "alignment_score": alignment.get("alignment_score", 0),
-                        "matched_aspects": alignment.get("matched_aspects", []),
-                        "memory_count": len(memory_ids)
-                    })
-                else:
+                # 5. Always update tweet status regardless of processing success
+                try:
+                    success = await self.update_tweet_status(tweet["id"], memory_ids)
+                    
+                    if success:
+                        processed_count += 1
+                        results.append({
+                            "tweet_id": tweet.get("tweet_id", "unknown"),
+                            "alignment_score": alignment.get("alignment_score", 0),
+                            "matched_aspects": alignment.get("matched_aspects", []),
+                            "memory_count": len(memory_ids)
+                        })
+                    else:
+                        failed_count += 1
+                        logger.error(f"Failed to update tweet status for tweet {tweet['id']}")
+                except Exception as e:
+                    logger.error(f"Error updating tweet status for tweet {tweet['id']}: {str(e)}")
                     failed_count += 1
                 
                 # Add a small delay between tweets to avoid rate limits
                 await asyncio.sleep(2)
                 
             except Exception as e:
-                logger.error(f"Error processing tweet {tweet['id']}: {str(e)}")
+                logger.error(f"Unhandled error processing tweet {tweet.get('id', 'unknown')}: {str(e)}")
                 failed_count += 1
+                # Try to mark as archived even in case of unhandled error
+                try:
+                    await self.update_tweet_status(tweet.get("id"), [])
+                except Exception as inner_e:
+                    logger.error(f"Failed to mark tweet as archived after error: {str(inner_e)}")
         
         return {
             "status": "success",
