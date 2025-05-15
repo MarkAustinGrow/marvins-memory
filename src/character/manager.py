@@ -132,8 +132,7 @@ class CharacterManager:
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.5,
-                response_format={"type": "json_object"}
+                temperature=0.5
             )
             
             # Parse the response
