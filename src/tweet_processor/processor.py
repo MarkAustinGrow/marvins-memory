@@ -9,6 +9,7 @@ from openai import OpenAI
 from ..config import SUPABASE_URL, SUPABASE_KEY, MIN_ALIGNMENT_SCORE, OPENAI_API_KEY
 from ..research.research_manager import research_manager
 from ..memory.manager import memory_manager
+from ..character.manager import character_manager
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -47,49 +48,13 @@ class TweetProcessor:
             return []
     
     async def generate_research_query(self, tweet_text: str) -> Dict[str, Any]:
-        """Generate a research query based on tweet content using OpenAI"""
+        """Generate a research query based on tweet content using the curious evaluation approach"""
         
         logger.debug(f"Evaluating and generating research query for tweet: {tweet_text[:50]}...")
         
         try:
-            # Initialize OpenAI client
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            
-            # Create the prompt for research query generation
-            prompt = f"""
-            Marvin is an AI researching culture and philosophy with interests in AI art, street art, graffiti, zines, glitch aesthetics, experimental visual art, urban photography, underground culture, and digital ethics.
-
-            Evaluate the following tweet and decide if it's worth researching for Marvin:
-
-            Tweet: "{tweet_text}"
-
-            First, determine if this tweet contains content relevant to Marvin's interests or has cultural/philosophical significance.
-            
-            If the tweet is relevant or interesting:
-            1. Generate a research question that explores the cultural, philosophical, or artistic context
-            2. Dig deeper into any references, metaphors, or themes present
-            3. Connect to broader intellectual movements or ideas
-            
-            If the tweet is NOT relevant (e.g., simple replies, generic statements, spam):
-            Explain why it's not worth researching.
-            
-            Respond in JSON format:
-            {{
-                "is_worth_researching": true/false,
-                "relevance_explanation": "Brief explanation of why this is/isn't relevant to Marvin",
-                "research_question": "Your research question here (only if worth researching)"
-            }}
-            """
-            
-            # Call OpenAI API
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
-            )
-            
-            # Extract and parse the response
-            result = json.loads(response.choices[0].message.content.strip())
+            # Use the curious evaluation approach from character manager
+            result = character_manager.evaluate_alignment_curious(tweet_text)
             
             logger.debug(f"Research evaluation: worth_researching={result.get('is_worth_researching', False)}")
             logger.debug(f"Relevance explanation: {result.get('relevance_explanation', '')}")
@@ -173,8 +138,15 @@ class TweetProcessor:
                     vibe_tags = [tag.strip() for tag in tweet["vibe_tags"].split(",") if tag.strip()]
                     tags.extend(vibe_tags)
                 
-                # Create memory content with reference to original tweet
+                # Add curious tag if this came from the curious evaluation
+                if "curious" not in tags:
+                    tags.append("curious")
+                
+                # Create memory content with reference to original tweet and research question
+                research_question = research_result.get("research_query", "")
                 content = f"{insight['content']}\n\nBased on tweet: \"{tweet['tweet_text']}\""
+                if research_question:
+                    content += f"\n\nResearch question: \"{research_question}\""
                 
                 # Store in memory system with bypass_alignment_check=True
                 # This ensures that if the LLM decided the tweet was worth researching,
@@ -184,6 +156,11 @@ class TweetProcessor:
                     memory_type="research",
                     source=f"tweet:{tweet['tweet_id']}",
                     tags=tags,
+                    metadata={
+                        "relevance_type": "curious",
+                        "relevance_explanation": research_result.get("relevance_explanation", ""),
+                        "research_question": research_result.get("research_query", "")
+                    },
                     bypass_alignment_check=True  # Bypass the alignment check
                 )
                 

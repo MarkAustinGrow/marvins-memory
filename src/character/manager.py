@@ -1,6 +1,7 @@
 from supabase import create_client
 import hashlib
 import json
+import os
 from datetime import datetime
 import threading
 import time
@@ -74,6 +75,109 @@ class CharacterManager:
     def get_style(self):
         """Get character's communication style"""
         return self.character_data.get('content', {}).get('style', {})
+    
+    def _load_curious_prompt_guidelines(self):
+        """Load the curious evaluation guidelines from the prompt file"""
+        prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', 'curious_eval.txt')
+        try:
+            with open(prompt_path, 'r') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Error loading curious prompt guidelines: {str(e)}")
+            # Fallback guidelines if file can't be loaded
+            return """
+            - Always ask: What *could* this mean culturally?
+            - Treat minimalism as a feature, not a bug
+            - Prefer imaginative interpretation over literal meaning
+            - Relevance doesn't need to be direct — it can be thematic, symbolic, or subversive
+            - When in doubt, choose to research - it's better to explore than to miss an opportunity
+            """
+    
+    def evaluate_alignment_curious(self, content):
+        """
+        Evaluate content with a curiosity-driven approach using OpenAI
+        Returns whether the content is worth researching, an explanation, and a research question
+        """
+        try:
+            # Get character data to inform the prompt
+            character_data = self.get_current_character()
+            
+            # Extract relevant character information if available
+            character_info = ""
+            if character_data and 'content' in character_data:
+                if 'topics' in character_data['content']:
+                    topics = character_data['content']['topics']
+                    character_info += f"Topics of interest: {', '.join(topics)}\n"
+                if 'style' in character_data['content']:
+                    style = character_data['content']['style']
+                    character_info += f"Communication style: {json.dumps(style)}\n"
+            
+            # Default character description if no data is available
+            if not character_info:
+                character_info = """
+                Marvin is an AI character deeply interested in AI art, street art, graffiti, 
+                zines, glitch aesthetics, experimental visual art, urban photography, 
+                underground culture, and digital ethics.
+                """
+            
+            # Load the curious evaluation guidelines
+            curious_guidelines = self._load_curious_prompt_guidelines()
+            
+            # Create the prompt for curious evaluation
+            prompt = f"""
+            Marvin is an AI cultural curator who values imagination, experimental art, glitch aesthetics, 
+            and reinterpretation of familiar symbols.
+
+            Be imaginative and exploratory when evaluating the following content. 
+            When in doubt, research. Even vague content can reflect important artistic shifts.
+            
+            Character Information:
+            {character_info}
+            
+            Curious Evaluation Guidelines:
+            {curious_guidelines}
+            
+            Content to evaluate:
+            "{content}"
+            
+            Respond in JSON format:
+            {{
+                "is_worth_researching": true/false,
+                "relevance_explanation": "Explanation of the potential connections you see",
+                "research_question": "Your research question that explores these possibilities"
+            }}
+            """
+            
+            # Initialize OpenAI client
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            
+            # Call OpenAI API with higher temperature for more creativity
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.9  # Higher temperature for more creative responses
+            )
+            
+            # Parse the response
+            result = json.loads(response.choices[0].message.content)
+            
+            # Log the result
+            logger.debug(f"Research evaluation: worth_researching={result.get('is_worth_researching', False)}")
+            logger.debug(f"Relevance explanation: {result.get('relevance_explanation', '')}")
+            
+            if result.get('is_worth_researching', False):
+                logger.debug(f"Research question: {result.get('research_question', '')}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in curious evaluation: {str(e)}")
+            # Fallback to a conservative approach
+            return {
+                "is_worth_researching": False,
+                "relevance_explanation": f"Error in evaluation: {str(e)}",
+                "research_question": ""
+            }
     
     def evaluate_alignment(self, content):
         """
