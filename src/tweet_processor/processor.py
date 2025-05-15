@@ -27,10 +27,10 @@ class TweetProcessor:
         logger.debug(f"Fetching candidate tweets with limit={limit}")
         
         try:
-            # Query tweets_cache table for unprocessed tweets without engagement filter
+            # Query tweets_cache table for unarchived tweets without engagement filter
             response = self.supabase.table("tweets_cache") \
                 .select("id,tweet_id,tweet_text,tweet_url,engagement_score,public_metrics,vibe_tags,created_at") \
-                .is_("processed_at", "null") \
+                .eq("archived", False) \
                 .order("created_at", desc=True) \
                 .limit(limit) \
                 .execute()
@@ -164,7 +164,7 @@ class TweetProcessor:
         return memory_ids
     
     async def update_tweet_status(self, tweet_id: int, memory_ids: List[str]) -> bool:
-        """Mark tweet as processed and link to created memories"""
+        """Mark tweet as archived and link to created memories"""
         
         logger.debug(f"Updating status for tweet {tweet_id} with {len(memory_ids)} memories")
         
@@ -172,7 +172,7 @@ class TweetProcessor:
             # Update the tweet record
             response = self.supabase.table("tweets_cache") \
                 .update({
-                    "processed_at": datetime.now().isoformat(),
+                    "archived": True,
                     "memory_ids": json.dumps(memory_ids)
                 }) \
                 .eq("id", tweet_id) \
@@ -193,7 +193,7 @@ class TweetProcessor:
         tweets = await self.get_candidate_tweets(limit=limit)
         
         if not tweets:
-            return {"status": "success", "processed_count": 0, "message": "No tweets to process"}
+            return {"status": "success", "processed_count": 0, "failed_count": 0, "message": "No tweets to process"}
         
         processed_count = 0
         failed_count = 0
@@ -201,10 +201,8 @@ class TweetProcessor:
         
         for tweet in tweets:
             try:
-                # Check if tweet has already been processed
-                if tweet.get("processed_at"):
-                    logger.debug(f"Skipping already processed tweet {tweet['id']}")
-                    continue
+                # We don't need to check if tweet has already been processed
+                # since we're now filtering by archived=False in get_candidate_tweets
                 
                 # 2. Evaluate tweet alignment with character
                 tweet_text = tweet.get("tweet_text", "")
