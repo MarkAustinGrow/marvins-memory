@@ -4,8 +4,9 @@ import asyncio
 import json
 from datetime import datetime
 from supabase import create_client
+from openai import OpenAI
 
-from ..config import SUPABASE_URL, SUPABASE_KEY, MIN_ALIGNMENT_SCORE
+from ..config import SUPABASE_URL, SUPABASE_KEY, MIN_ALIGNMENT_SCORE, OPENAI_API_KEY
 from ..research.research_manager import research_manager
 from ..memory.manager import memory_manager
 
@@ -46,6 +47,49 @@ class TweetProcessor:
             logger.error(f"Error fetching candidate tweets: {str(e)}")
             return []
     
+    async def generate_research_query(self, tweet_text: str) -> str:
+        """Generate a research query based on tweet content using OpenAI"""
+        
+        logger.debug(f"Generating research query for tweet: {tweet_text[:50]}...")
+        
+        try:
+            # Initialize OpenAI client
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            
+            # Create the prompt for research query generation
+            prompt = f"""
+            Marvin is an AI researching culture and philosophy. Based on this tweet, generate a culturally insightful research question.
+            
+            Tweet: "{tweet_text}"
+            
+            Generate a research question that:
+            1. Explores the cultural, philosophical, or artistic context of this tweet
+            2. Digs deeper into any references, metaphors, or themes present
+            3. Connects to broader intellectual movements or ideas
+            4. Would yield interesting and meaningful insights when researched
+            
+            Research Question:
+            """
+            
+            # Call OpenAI API
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7
+            )
+            
+            # Extract the research question
+            research_question = response.choices[0].message.content.strip()
+            
+            logger.debug(f"Generated research question: {research_question}")
+            
+            return research_question
+            
+        except Exception as e:
+            logger.error(f"Error generating research query: {str(e)}")
+            # Fallback to a generic research prompt
+            return f"Explain the cultural and philosophical context of this tweet: '{tweet_text}'"
+    
     async def research_tweet(self, tweet: Dict[str, Any]) -> Dict[str, Any]:
         """Research a tweet using Perplexity AI"""
         
@@ -54,26 +98,22 @@ class TweetProcessor:
         
         logger.debug(f"Researching tweet: {tweet_text[:50]}...")
         
-        # Craft a prompt specifically for tweet research
-        prompt = f"""
-        Can you explain the cultural or artistic context of this tweet:
-        '{tweet_text}'
-        
-        Include any relevant subcultures, art movements, or philosophies it relates to.
-        Analyze any references, metaphors, or themes present in the tweet.
-        Provide historical or contemporary context that helps understand its meaning.
-        """
-        
         try:
-            # Use the existing research manager
+            # Generate a targeted research query using OpenAI
+            research_query = await self.generate_research_query(tweet_text)
+            
+            logger.info(f"Researching with query: {research_query}")
+            
+            # Use the existing research manager with the generated query
             research_result = await self.research_manager.conduct_research(
-                query=prompt,
+                query=research_query,
                 auto_approve=False  # We'll process the insights ourselves
             )
             
             # Add tweet metadata to the result
             research_result["tweet_id"] = tweet.get("tweet_id")
             research_result["tweet_text"] = tweet_text
+            research_result["research_query"] = research_query
             
             return research_result
             
@@ -162,7 +202,27 @@ class TweetProcessor:
         
         for tweet in tweets:
             try:
-                # 2. Research tweet content
+                # Check if tweet has already been processed
+                if tweet.get("processed_at"):
+                    logger.debug(f"Skipping already processed tweet {tweet['id']}")
+                    continue
+                
+                # 2. Evaluate tweet alignment with character
+                tweet_text = tweet.get("tweet_text", "")
+                alignment = await memory_manager.character_manager.evaluate_alignment(tweet_text)
+                
+                # Log alignment result
+                logger.info(f"Tweet alignment: score={alignment.get('alignment_score', 0)}, aspects={alignment.get('matched_aspects', [])}")
+                logger.debug(f"Alignment explanation: {alignment.get('explanation', 'No explanation')}")
+                
+                # Skip tweets that don't align well with character
+                if alignment.get("alignment_score", 0) < MIN_ALIGNMENT_SCORE:
+                    logger.info(f"Skipping tweet {tweet['id']} due to low alignment score: {alignment.get('alignment_score', 0)}")
+                    # Mark as processed but with no memories
+                    await self.update_tweet_status(tweet["id"], [])
+                    continue
+                
+                # 3. Research tweet content
                 research_result = await self.research_tweet(tweet)
                 
                 if research_result.get("status") == "error":
@@ -170,16 +230,18 @@ class TweetProcessor:
                     failed_count += 1
                     continue
                 
-                # 3. Process insights into memories
+                # 4. Process insights into memories
                 memory_ids = await self.process_insights(research_result, tweet)
                 
-                # 4. Update tweet status
+                # 5. Update tweet status
                 success = await self.update_tweet_status(tweet["id"], memory_ids)
                 
                 if success:
                     processed_count += 1
                     results.append({
                         "tweet_id": tweet["tweet_id"],
+                        "alignment_score": alignment.get("alignment_score", 0),
+                        "matched_aspects": alignment.get("matched_aspects", []),
                         "memory_count": len(memory_ids)
                     })
                 else:

@@ -4,8 +4,13 @@ import json
 from datetime import datetime
 import threading
 import time
+import logging
+from openai import OpenAI
 
-from ..config import SUPABASE_URL, SUPABASE_KEY, MARVIN_ID
+from ..config import SUPABASE_URL, SUPABASE_KEY, MARVIN_ID, OPENAI_API_KEY
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class CharacterManager:
     def __init__(self):
@@ -72,16 +77,86 @@ class CharacterManager:
     
     def evaluate_alignment(self, content):
         """
-        Evaluate how well content aligns with character
+        Evaluate how well content aligns with character using OpenAI
         Returns alignment score and relevant aspects
         """
-        # This is a temporary implementation until LLM evaluation is added
-        # Always return a high alignment score to allow memory storage
-        return {
-            "alignment_score": 0.9,  # High score to ensure content is accepted
-            "matched_aspects": ["temporary_implementation"],
-            "explanation": "Temporary implementation - all content is accepted"
-        }
+        try:
+            # Get character data to inform the prompt
+            character_data = self.get_current_character()
+            
+            # Extract relevant character information if available
+            character_info = ""
+            if character_data and 'content' in character_data:
+                if 'topics' in character_data['content']:
+                    topics = character_data['content']['topics']
+                    character_info += f"Topics of interest: {', '.join(topics)}\n"
+                if 'style' in character_data['content']:
+                    style = character_data['content']['style']
+                    character_info += f"Communication style: {json.dumps(style)}\n"
+            
+            # Default character description if no data is available
+            if not character_info:
+                character_info = """
+                Marvin is an AI character deeply interested in art, philosophy, aesthetics, 
+                cultural evolution, technology, and the human condition. Marvin values 
+                intellectual depth, creativity, and content that sparks meaningful reflection.
+                """
+            
+            # Create the prompt for alignment evaluation
+            prompt = f"""
+            Evaluate how well the following content aligns with Marvin's character and interests.
+            
+            Character Information:
+            {character_info}
+            
+            Content to evaluate:
+            "{content}"
+            
+            Respond with a JSON object containing:
+            1. "alignment_score": A float between 0.0 and 1.0 representing how well the content aligns
+            2. "matched_aspects": A list of strings representing the aspects of Marvin's character that match
+            3. "explanation": A string explaining why the content does or doesn't align
+            
+            Example response format:
+            {{
+                "alignment_score": 0.85,
+                "matched_aspects": ["philosophy", "aesthetics"],
+                "explanation": "This content explores philosophical concepts of beauty..."
+            }}
+            """
+            
+            # Initialize OpenAI client
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            
+            # Call OpenAI API
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5,
+                response_format={"type": "json_object"}
+            )
+            
+            # Parse the response
+            result = json.loads(response.choices[0].message.content)
+            
+            # Log the result
+            logger.info(f"Alignment evaluation: score={result['alignment_score']}, aspects={result['matched_aspects']}")
+            logger.debug(f"Alignment explanation: {result['explanation']}")
+            
+            return {
+                "alignment_score": result["alignment_score"],
+                "matched_aspects": result["matched_aspects"],
+                "explanation": result["explanation"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in alignment evaluation: {str(e)}")
+            # Fallback to a moderate score in case of errors
+            return {
+                "alignment_score": 0.5,  # Moderate score as fallback
+                "matched_aspects": ["error_fallback"],
+                "explanation": f"Error in alignment evaluation: {str(e)}"
+            }
 
 # Create singleton instance
 character_manager = CharacterManager()
