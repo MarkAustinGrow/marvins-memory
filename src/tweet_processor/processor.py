@@ -176,12 +176,15 @@ class TweetProcessor:
                 # Create memory content with reference to original tweet
                 content = f"{insight['content']}\n\nBased on tweet: \"{tweet['tweet_text']}\""
                 
-                # Store in memory system (this will check character alignment)
+                # Store in memory system with bypass_alignment_check=True
+                # This ensures that if the LLM decided the tweet was worth researching,
+                # the resulting memories will be stored regardless of alignment score
                 memory_id = await self.memory_manager.store_memory(
                     content=content,
                     memory_type="research",
                     source=f"tweet:{tweet['tweet_id']}",
-                    tags=tags
+                    tags=tags,
+                    bypass_alignment_check=True  # Bypass the alignment check
                 )
                 
                 if memory_id:

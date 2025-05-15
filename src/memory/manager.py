@@ -22,33 +22,45 @@ class MemoryManager:
         content: str,
         memory_type: str,
         source: str,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        bypass_alignment_check: bool = False  # New parameter
     ) -> str:
         """
-        Store a new memory if it aligns with Marvin's character
+        Store a new memory if it aligns with Marvin's character or if alignment check is bypassed
         """
         # Validate memory type
         if memory_type not in MEMORY_TYPES:
             raise ValueError(f"Invalid memory type. Must be one of: {MEMORY_TYPES}")
         
-        # Check character alignment
-        alignment = self.character_manager.evaluate_alignment(content)
+        # Check character alignment (unless bypassed)
+        alignment_score = MIN_ALIGNMENT_SCORE  # Default value
+        matched_aspects = []
+        alignment_explanation = "Alignment check bypassed"
         
-        # Add error handling for alignment
-        if alignment is None:
-            logger.error("Character alignment evaluation returned None")
-            alignment = {
-                "alignment_score": MIN_ALIGNMENT_SCORE,
-                "matched_aspects": ["error_fallback"],
-                "explanation": "Error in alignment evaluation - using minimum score"
-            }
+        if not bypass_alignment_check:
+            # Perform the alignment check as before
+            alignment = self.character_manager.evaluate_alignment(content)
+            
+            # Add error handling for alignment
+            if alignment is None:
+                logger.error("Character alignment evaluation returned None")
+                alignment = {
+                    "alignment_score": MIN_ALIGNMENT_SCORE,
+                    "matched_aspects": ["error_fallback"],
+                    "explanation": "Error in alignment evaluation - using minimum score"
+                }
+            
+            alignment_score = alignment.get("alignment_score", 0)
+            matched_aspects = alignment.get("matched_aspects", [])
+            alignment_explanation = alignment.get("explanation", "No explanation provided")
+            
+            if alignment_score < MIN_ALIGNMENT_SCORE:
+                logger.debug(f"Content rejected: alignment score {alignment_score} below threshold {MIN_ALIGNMENT_SCORE}")
+                return None
+        else:
+            logger.debug("Alignment check bypassed for this memory")
         
-        alignment_score = alignment.get("alignment_score", 0)
-        if alignment_score < MIN_ALIGNMENT_SCORE:
-            logger.debug(f"Content rejected: alignment score {alignment_score} below threshold {MIN_ALIGNMENT_SCORE}")
-            return None
-        
-        logger.debug(f"Content accepted: alignment score {alignment_score}")
+        logger.debug(f"Content accepted: alignment score {alignment_score if not bypass_alignment_check else 'bypassed'}")
         
         # Generate embedding
         vector = self.embedding_generator.generate(content)
@@ -63,9 +75,11 @@ class MemoryManager:
             "source": source,
             "timestamp": datetime.now().isoformat(),
             "tags": tags or [],
-            "persona_alignment_score": alignment.get("alignment_score", MIN_ALIGNMENT_SCORE),
-            "matched_aspects": alignment.get("matched_aspects", []),
-            "character_version": character_version
+            "persona_alignment_score": alignment_score,
+            "matched_aspects": matched_aspects,
+            "alignment_explanation": alignment_explanation,
+            "character_version": character_version,
+            "alignment_bypassed": bypass_alignment_check
         }
         
         # Store in Qdrant
