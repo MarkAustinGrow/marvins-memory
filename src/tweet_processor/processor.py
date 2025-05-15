@@ -46,10 +46,10 @@ class TweetProcessor:
             logger.error(f"Error fetching candidate tweets: {str(e)}")
             return []
     
-    async def generate_research_query(self, tweet_text: str) -> str:
+    async def generate_research_query(self, tweet_text: str) -> Dict[str, Any]:
         """Generate a research query based on tweet content using OpenAI"""
         
-        logger.debug(f"Generating research query for tweet: {tweet_text[:50]}...")
+        logger.debug(f"Evaluating and generating research query for tweet: {tweet_text[:50]}...")
         
         try:
             # Initialize OpenAI client
@@ -57,17 +57,28 @@ class TweetProcessor:
             
             # Create the prompt for research query generation
             prompt = f"""
-            Marvin is an AI researching culture and philosophy. Based on this tweet, generate a culturally insightful research question.
-            
+            Marvin is an AI researching culture and philosophy with interests in AI art, street art, graffiti, zines, glitch aesthetics, experimental visual art, urban photography, underground culture, and digital ethics.
+
+            Evaluate the following tweet and decide if it's worth researching for Marvin:
+
             Tweet: "{tweet_text}"
+
+            First, determine if this tweet contains content relevant to Marvin's interests or has cultural/philosophical significance.
             
-            Generate a research question that:
-            1. Explores the cultural, philosophical, or artistic context of this tweet
-            2. Digs deeper into any references, metaphors, or themes present
-            3. Connects to broader intellectual movements or ideas
-            4. Would yield interesting and meaningful insights when researched
+            If the tweet is relevant or interesting:
+            1. Generate a research question that explores the cultural, philosophical, or artistic context
+            2. Dig deeper into any references, metaphors, or themes present
+            3. Connect to broader intellectual movements or ideas
             
-            Research Question:
+            If the tweet is NOT relevant (e.g., simple replies, generic statements, spam):
+            Explain why it's not worth researching.
+            
+            Respond in JSON format:
+            {{
+                "is_worth_researching": true/false,
+                "relevance_explanation": "Brief explanation of why this is/isn't relevant to Marvin",
+                "research_question": "Your research question here (only if worth researching)"
+            }}
             """
             
             # Call OpenAI API
@@ -77,30 +88,50 @@ class TweetProcessor:
                 temperature=0.7
             )
             
-            # Extract the research question
-            research_question = response.choices[0].message.content.strip()
+            # Extract and parse the response
+            result = json.loads(response.choices[0].message.content.strip())
             
-            logger.debug(f"Generated research question: {research_question}")
+            logger.debug(f"Research evaluation: worth_researching={result.get('is_worth_researching', False)}")
+            logger.debug(f"Relevance explanation: {result.get('relevance_explanation', '')}")
             
-            return research_question
+            if result.get('is_worth_researching', False):
+                logger.debug(f"Generated research question: {result.get('research_question', '')}")
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error generating research query: {str(e)}")
-            # Fallback to a generic research prompt
-            return f"Explain the cultural and philosophical context of this tweet: '{tweet_text}'"
+            # Fallback to a conservative approach
+            return {
+                "is_worth_researching": False,
+                "relevance_explanation": f"Error in evaluation: {str(e)}",
+                "research_question": ""
+            }
     
     async def research_tweet(self, tweet: Dict[str, Any]) -> Dict[str, Any]:
-        """Research a tweet using Perplexity AI"""
+        """Research a tweet using Perplexity AI if it's worth researching"""
         
         tweet_text = tweet.get("tweet_text", "")
         tweet_url = tweet.get("tweet_url", "")
         
-        logger.debug(f"Researching tweet: {tweet_text[:50]}...")
+        logger.debug(f"Evaluating tweet for research: {tweet_text[:50]}...")
         
         try:
-            # Generate a targeted research query using OpenAI
-            research_query = await self.generate_research_query(tweet_text)
+            # Evaluate the tweet and potentially generate a research query
+            evaluation = await self.generate_research_query(tweet_text)
             
+            # If the tweet is not worth researching, return early
+            if not evaluation.get("is_worth_researching", False):
+                logger.info(f"Tweet deemed not worth researching: {evaluation.get('relevance_explanation', '')}")
+                return {
+                    "status": "skipped",
+                    "reason": evaluation.get("relevance_explanation", "Not relevant to Marvin's interests"),
+                    "tweet_id": tweet.get("tweet_id"),
+                    "tweet_text": tweet_text
+                }
+            
+            # Get the research question
+            research_query = evaluation.get("research_question", "")
             logger.info(f"Researching with query: {research_query}")
             
             # Use the existing research manager with the generated query
@@ -109,10 +140,11 @@ class TweetProcessor:
                 auto_approve=False  # We'll process the insights ourselves
             )
             
-            # Add tweet metadata to the result
+            # Add tweet metadata and evaluation to the result
             research_result["tweet_id"] = tweet.get("tweet_id")
             research_result["tweet_text"] = tweet_text
             research_result["research_query"] = research_query
+            research_result["relevance_explanation"] = evaluation.get("relevance_explanation", "")
             
             return research_result
             
@@ -205,42 +237,29 @@ class TweetProcessor:
         
         for tweet in tweets:
             try:
-                # We don't need to check if tweet has already been processed
-                # since we're now filtering by archived=False in get_candidate_tweets
-                
                 # Initialize variables
-                alignment = {"alignment_score": 0, "matched_aspects": [], "explanation": "Not evaluated"}
                 memory_ids = []
-                should_mark_archived = True
+                research_result = {"status": "not_processed"}
                 
                 try:
-                    # 2. Evaluate tweet alignment with character
-                    tweet_text = tweet.get("tweet_text", "")
-                    alignment = memory_manager.character_manager.evaluate_alignment(tweet_text)
+                    # Research tweet content (which now includes relevance evaluation)
+                    research_result = await self.research_tweet(tweet)
                     
-                    # Log alignment result
-                    logger.info(f"Tweet alignment: score={alignment.get('alignment_score', 0)}, aspects={alignment.get('matched_aspects', [])}")
-                    logger.debug(f"Alignment explanation: {alignment.get('explanation', 'No explanation')}")
-                    
-                    # Skip tweets that don't align well with character
-                    if alignment.get("alignment_score", 0) < 0.75:  # Changed from MIN_ALIGNMENT_SCORE to 0.75
-                        logger.info(f"Skipping tweet {tweet['id']} due to low alignment score: {alignment.get('alignment_score', 0)}")
-                        # Continue with marking as archived but with no memories
+                    if research_result.get("status") == "skipped":
+                        # Tweet was evaluated but deemed not worth researching
+                        logger.info(f"Skipping research for tweet {tweet['id']}: {research_result.get('reason')}")
+                        # We'll still mark it as archived
+                    elif research_result.get("status") == "error":
+                        logger.error(f"Research failed for tweet {tweet['id']}: {research_result.get('error')}")
                     else:
-                        # 3. Research tweet content
-                        research_result = await self.research_tweet(tweet)
-                        
-                        if research_result.get("status") == "error":
-                            logger.error(f"Research failed for tweet {tweet['id']}: {research_result.get('error')}")
-                        else:
-                            # 4. Process insights into memories
-                            memory_ids = await self.process_insights(research_result, tweet)
+                        # Process insights into memories
+                        memory_ids = await self.process_insights(research_result, tweet)
                 
                 except Exception as e:
                     logger.error(f"Error in tweet processing pipeline for tweet {tweet['id']}: {str(e)}")
                     # Continue with marking as archived
                 
-                # 5. Always update tweet status regardless of processing success
+                # Always update tweet status regardless of processing success
                 try:
                     success = await self.update_tweet_status(tweet["id"], memory_ids)
                     
@@ -248,8 +267,8 @@ class TweetProcessor:
                         processed_count += 1
                         results.append({
                             "tweet_id": tweet.get("tweet_id", "unknown"),
-                            "alignment_score": alignment.get("alignment_score", 0),
-                            "matched_aspects": alignment.get("matched_aspects", []),
+                            "status": research_result.get("status", "unknown"),
+                            "reason": research_result.get("reason", ""),
                             "memory_count": len(memory_ids)
                         })
                     else:
