@@ -1,7 +1,7 @@
 # Marvin's Memory System Documentation
 
 ## Overview
-Marvin's Memory System is a sophisticated AI memory management system that enables persistent storage and retrieval of various types of content using vector embeddings. The system is built using Qdrant for vector storage, Supabase for metadata management, and integrates with LLMs for intelligent recall and response generation.
+Marvin's Memory System is a sophisticated AI memory management system that enables persistent storage and retrieval of various types of content using vector embeddings. The system is built using Qdrant for vector storage, Supabase for metadata management, and integrates with LLMs for intelligent recall and response generation. The system features a curious evaluation approach that prioritizes creative interpretation and exploration over strict relevance.
 
 ## Architecture
 
@@ -24,6 +24,7 @@ Marvin's Memory System is a sophisticated AI memory management system that enabl
 src/
 ├── api/           # FastAPI endpoints and routes
 ├── character/     # AI character configuration and personality
+│   └── prompts/   # Prompt templates for character evaluation
 ├── database/      # Database connections and models
 ├── embeddings/    # Embedding generation and management
 ├── memory/        # Memory management and retrieval logic
@@ -64,9 +65,14 @@ Each memory entry contains:
 - `type`: Content category (tweet, research, thought, etc.)
 - `source`: Origin of the content
 - `content`: Full text content
-- `tags`: Topic categorization
+- `tags`: Topic categorization (including "curious" tag for memories from curious evaluation)
 - `timestamp`: Creation/update time
 - `agent_id`: Persona identifier
+- `metadata`: Additional contextual information:
+  - `relevance_type`: How the content was determined to be relevant (e.g., "curious")
+  - `relevance_explanation`: Explanation of why the content was deemed relevant
+  - `research_question`: The question that guided the research (for research memories)
+  - `alignment_score`: Numerical score of alignment with character (0.0-1.0)
 
 ## Technical Implementation
 
@@ -76,14 +82,16 @@ Each memory entry contains:
 - OpenAI embeddings (text-embedding-3-small, 1536 dimensions)
 
 ### Character Alignment
-- Content is evaluated for alignment with Marvin's character
-- Alignment score determines if content is stored
-- Current implementation uses a temporary high-score approach
-- Future implementation will use LLM-based evaluation
+- Content is evaluated for alignment with Marvin's character using two approaches:
+  1. **Traditional Alignment**: Evaluates how well content matches Marvin's interests
+  2. **Curious Evaluation**: Prioritizes creative interpretation and exploration
 - Alignment evaluation includes:
   - Score (0.0-1.0)
   - Matched aspects
   - Explanation of alignment
+- The curious evaluation can bypass the alignment score threshold
+- Prompt-based guidelines stored in character/prompts/curious_eval.txt
+- Higher temperature (0.9) used for more creative evaluations
 
 ### Error Handling
 - Robust error handling throughout the codebase
@@ -139,8 +147,11 @@ Each memory entry contains:
 ### Scheduled Tasks
 - Tweet processing runs every 6 hours
 - Selects high-engagement tweets from tweets_cache
-- Researches tweets using Perplexity AI
-- Stores insights in memory with character alignment
+- Evaluates tweets using the curious evaluation approach
+- Researches tweets deemed worth exploring using Perplexity AI
+- Stores insights in memory with bypass_alignment_check=True
+- Adds "curious" tag to memories created through this process
+- Preserves research questions and relevance explanations in metadata
 
 ### UI Components
 - Memory inspection and management
@@ -204,11 +215,30 @@ Key environment variables:
 ## Future Development
 
 ### Planned Features
-1. Enhanced memory retrieval algorithms
-2. Advanced content categorization
-3. Improved UI/UX
-4. Additional memory types
-5. Performance optimizations
+1. **Enhanced Curious Evaluation**:
+   - Further refinement of the curious evaluation prompts
+   - Adaptive temperature settings based on content type
+   - Expanded prompt bank with specialized evaluation guidelines
+
+2. **Memory Chaining**:
+   - Implementing connections between related memories
+   - Creating a web of associations between curious memories
+   - Exploring thematic relationships across different content types
+
+3. **Curiosity Metrics**:
+   - Tracking and visualizing the impact of curious evaluation
+   - Measuring memory diversity and exploration breadth
+   - Comparing traditional vs. curious memory acquisition
+
+4. **Automated Prompt Refinement**:
+   - Self-improving prompt guidelines based on memory quality
+   - A/B testing of different curious evaluation approaches
+   - Feedback loop from memory usage to prompt adjustment
+
+5. **Random Exploration**:
+   - Occasional random selection of content for research
+   - Serendipity-driven memory acquisition
+   - Controlled randomness to discover unexpected connections
 
 ### Roadmap
 See `Roadmap.md` for detailed development plans and milestones.
@@ -252,6 +282,9 @@ See `Roadmap.md` for detailed development plans and milestones.
    - Check character data is loaded correctly from Supabase
    - Verify alignment evaluation implementation
    - Review minimum alignment score threshold
+   - Check if curious_eval.txt file exists in character/prompts directory
+   - Verify the curious evaluation is working by checking logs for "Research evaluation: worth_researching=True"
+   - Look for "bypass_alignment_check=True" in logs to confirm threshold bypass is working
 
 4. NoneType errors in component interactions
    - Check for proper error handling in component interfaces
@@ -281,6 +314,11 @@ See `Roadmap.md` for detailed development plans and milestones.
   - "Trying without filter as fallback" - Filter bypass activated
   - "Event loop error" - UI async operation issues
   - "Retry attempt X of Y" - API retry mechanism in action
+  - "Research evaluation: worth_researching=True" - Curious evaluation found value in content
+  - "Relevance explanation:" - Shows reasoning behind curious evaluation
+  - "Generated research question:" - Research question from curious evaluation
+  - "bypass_alignment_check=True" - Alignment threshold being bypassed
+  - "Created X memories with curious approach" - Successful memory creation
 
 ## Contributing
 Please refer to the project's contribution guidelines for information on:
