@@ -23,7 +23,8 @@ class MemoryManager:
         memory_type: str,
         source: str,
         tags: Optional[List[str]] = None,
-        bypass_alignment_check: bool = False  # New parameter
+        bypass_alignment_check: bool = False,  # New parameter
+        metadata: Optional[Dict[str, Any]] = None  # Add metadata parameter
     ) -> str:
         """
         Store a new memory if it aligns with Marvin's character or if alignment check is bypassed
@@ -81,6 +82,10 @@ class MemoryManager:
             "character_version": character_version,
             "alignment_bypassed": bypass_alignment_check
         }
+        
+        # Add metadata to payload if provided
+        if metadata:
+            payload.update(metadata)
         
         # Store in Qdrant
         return self.qdrant.store_memory(vector, payload)
