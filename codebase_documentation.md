@@ -74,6 +74,8 @@ Each memory entry contains:
   - `research_question`: The question that guided the research (for research memories)
   - `alignment_score`: Numerical score of alignment with character (0.0-1.0)
 
+The metadata field is fully customizable and can be extended with additional properties as needed. The tweet processor uses this field to store information about the curious evaluation process, including the original research question and relevance explanation. This metadata is preserved when memories are retrieved, allowing for rich context in downstream applications.
+
 ## Technical Implementation
 
 ### Database Integration
@@ -133,6 +135,11 @@ Each memory entry contains:
   - Automatic filter format validation and correction
   - Progressive degradation of filter complexity on errors
   - Graceful handling of Qdrant API version incompatibilities
+- Pagination support:
+  - `get_memories_paginated` method for efficient data retrieval
+  - `count_memories` method for total record counting
+  - Offset-based pagination with configurable page size
+  - Compatible with large datasets (300,000+ records)
 - Search optimization:
   - Efficient vector comparison with cosine distance
   - Proper handling of embedding dimensions (1536D)
@@ -140,9 +147,17 @@ Each memory entry contains:
 
 ### API Endpoints
 - Memory retrieval and search
+  - `/memories/search` - Semantic search with filtering
+  - `/memories/` (GET) - List all memories with pagination support
+    - Supports `page` and `limit` parameters for pagination
+    - Returns pagination metadata (total count, total pages)
+    - Handles large datasets efficiently
+  - `/memories/` (POST) - Create a new memory
+  - `/memories/{id}` (DELETE) - Delete a specific memory
 - Content embedding and storage
 - Memory management operations
 - Tweet processing and research
+- Research endpoints for Perplexity integration
 
 ### Scheduled Tasks
 - Tweet processing runs every 6 hours
@@ -169,6 +184,33 @@ Each memory entry contains:
   - Graceful error recovery and fallback strategies
 
 ## Development Setup
+
+### Client Examples
+The system includes several client examples to demonstrate how to interact with the API:
+
+1. **Python Client** (`client_example.py`)
+   - Complete Python client with all API endpoints
+   - Pagination support for listing memories
+   - Robust error handling with retry logic
+   - Configurable timeout and retry settings
+
+2. **JavaScript Client** (`client_example.js`)
+   - Browser and Node.js compatible
+   - Promise-based API with async/await support
+   - Automatic handling of API errors
+   - Exponential backoff for transient errors
+
+3. **TypeScript Client** (`client_example.ts`)
+   - Full TypeScript type definitions
+   - Type-safe API interactions
+   - Comprehensive interface definitions
+   - Compatible with modern TypeScript environments
+
+All clients include:
+- Proper URL handling with the `/api/` prefix
+- Pagination support for large datasets
+- Comprehensive error handling
+- Detailed documentation and usage examples
 
 ### Prerequisites
 - Docker and Docker Compose
@@ -277,6 +319,9 @@ See `Roadmap.md` for detailed development plans and milestones.
    - Look for "Fallback search returned X results" in logs
    - Try searching without filters as a test
    - Verify the search endpoint is returning 200 OK (not 500)
+   - When using pagination, ensure `page` and `limit` parameters are valid
+   - Check the pagination metadata in the response for total count
+   - Use the client examples to test API connectivity
 
 3. Character alignment failures
    - Check character data is loaded correctly from Supabase
@@ -286,7 +331,16 @@ See `Roadmap.md` for detailed development plans and milestones.
    - Verify the curious evaluation is working by checking logs for "Research evaluation: worth_researching=True"
    - Look for "bypass_alignment_check=True" in logs to confirm threshold bypass is working
 
-4. NoneType errors in component interactions
+4. API connectivity issues
+   - Ensure you're using the correct API URL with the `/api/` prefix
+   - Check that pagination parameters are within acceptable ranges
+   - Verify that the client is handling the pagination response correctly
+   - Use the provided client examples as reference implementations
+   - Look for "Unknown arguments" errors in logs which may indicate filter issues
+   - Test with smaller page sizes (10-50) when dealing with large datasets
+   - Implement proper retry logic for transient errors
+
+5. NoneType errors in component interactions
    - Check for proper error handling in component interfaces
    - Verify all methods return expected values even in error cases
    - Add defensive programming with null checks
