@@ -106,24 +106,67 @@ async def list_memories(
     request: Request,
     memory_type: Optional[str] = None,
     min_alignment: Optional[float] = None,
-    tags: Optional[List[str]] = None
+    tags: Optional[List[str]] = None,
+    page: int = 1,
+    limit: int = 50
 ):
-    """List all memories with optional filtering"""
-    logger.debug(f"list_memories called with memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}")
+    """List all memories with optional filtering and pagination"""
+    logger.debug(f"list_memories called with memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}, page={page}, limit={limit}")
     logger.debug(f"Request query params: {request.query_params}")
     
+    # Validate pagination parameters
+    if page < 1:
+        raise HTTPException(status_code=400, detail="Page must be greater than 0")
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
+    
     try:
-        logger.debug("Calling memory_manager.get_all_memories")
+        # Calculate offset
+        offset = (page - 1) * limit
+        
+        logger.debug(f"Calling memory_manager.get_all_memories with offset={offset}, limit={limit}")
         memories = memory_manager.get_all_memories(
+            memory_type=memory_type,
+            min_alignment=min_alignment,
+            tags=tags,
+            offset=offset,
+            limit=limit
+        )
+        
+        # Get total count for pagination info
+        total_count = memory_manager.count_memories(
             memory_type=memory_type,
             min_alignment=min_alignment,
             tags=tags
         )
-        logger.debug(f"get_all_memories returned {len(memories)} memories")
-        return {"memories": memories}
+        
+        logger.debug(f"get_all_memories returned {len(memories)} memories (total: {total_count})")
+        
+        # Calculate total pages
+        total_pages = (total_count + limit - 1) // limit  # Ceiling division
+        
+        return {
+            "memories": memories,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total_count,
+                "pages": total_pages
+            }
+        }
     except Exception as e:
         logger.error(f"Error in list_memories: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty results with error message instead of raising an exception
+        return {
+            "memories": [],
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": 0,
+                "pages": 0
+            },
+            "error": str(e)
+        }
 
 @app.delete("/memories/{memory_id}")
 async def delete_memory(memory_id: str):

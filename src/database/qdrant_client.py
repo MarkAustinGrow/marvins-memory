@@ -91,32 +91,18 @@ class QdrantManager:
                 raise e
     
     def get_all_memories(self, batch_size=100, filter=None):
-        """Get all memories with pagination"""
+        """
+        Get all memories with pagination (generator)
+        
+        This method is a generator that yields batches of memories.
+        For most use cases, get_memories_paginated is more appropriate.
+        """
         logger.debug(f"get_all_memories called with filter: {json.dumps(filter) if filter else None}")
         logger.debug(f"filter type: {type(filter)}")
         logger.debug(f"filter keys: {filter.keys() if filter and hasattr(filter, 'keys') else 'No keys'}")
         
         # Try to fix the filter format if needed
-        fixed_filter = None
-        if filter and isinstance(filter, dict):
-            # Log the structure of the filter
-            logger.debug(f"Filter structure: {json.dumps(filter, default=str)}")
-            
-            # Check if the filter has the expected structure
-            if "must" in filter and isinstance(filter["must"], list):
-                # This is the correct format for Qdrant
-                fixed_filter = filter
-                logger.debug("Using original filter format")
-            else:
-                # Try to convert to the correct format
-                logger.debug("Attempting to fix filter format")
-                fixed_filter = {"must": []}
-                for key, value in filter.items():
-                    if isinstance(value, dict) and "range" in value:
-                        fixed_filter["must"].append({"range": {key: value["range"]}})
-                    elif isinstance(value, dict) and "match" in value:
-                        fixed_filter["must"].append({"match": {key: value["match"]["value"]}})
-                logger.debug(f"Fixed filter: {json.dumps(fixed_filter, default=str)}")
+        fixed_filter = self._fix_filter_format(filter)
         
         offset = None
         while True:
@@ -151,6 +137,124 @@ class QdrantManager:
             except Exception as e:
                 logger.error(f"Error in get_all_memories: {str(e)}")
                 break
+    
+    def get_memories_paginated(self, offset=0, limit=50, filter=None):
+        """
+        Get memories with pagination (single batch)
+        
+        Args:
+            offset: Number of records to skip
+            limit: Maximum number of records to return
+            filter: Filter conditions
+            
+        Returns:
+            List of memory points
+        """
+        logger.debug(f"get_memories_paginated called with offset={offset}, limit={limit}, filter={json.dumps(filter) if filter else None}")
+        
+        # Try to fix the filter format if needed
+        fixed_filter = self._fix_filter_format(filter)
+        
+        try:
+            # Try with filter first
+            try:
+                logger.debug(f"Calling scroll with filter: {json.dumps(fixed_filter if fixed_filter else filter, default=str)}")
+                results = self.client.scroll(
+                    collection_name=COLLECTION_NAME,
+                    limit=limit,
+                    offset=offset,
+                    filter=fixed_filter if fixed_filter else filter
+                )[0]  # scroll returns (points, next_offset)
+                logger.debug(f"scroll returned {len(results) if results else 0} results")
+                return results
+            except Exception as e:
+                logger.error(f"Error in scroll with filter: {str(e)}")
+                # Try without filter as a fallback
+                logger.debug("Trying without filter as fallback")
+                results = self.client.scroll(
+                    collection_name=COLLECTION_NAME,
+                    limit=limit,
+                    offset=offset
+                )[0]
+                logger.debug(f"Fallback scroll returned {len(results) if results else 0} results")
+                return results
+        except Exception as e:
+            logger.error(f"Error in get_memories_paginated: {str(e)}")
+            return []
+    
+    def count_memories(self, filter=None):
+        """
+        Count total memories matching the filter criteria
+        
+        Args:
+            filter: Filter conditions
+            
+        Returns:
+            Total count of matching memories
+        """
+        logger.debug(f"count_memories called with filter: {json.dumps(filter) if filter else None}")
+        
+        # Try to fix the filter format if needed
+        fixed_filter = self._fix_filter_format(filter)
+        
+        try:
+            # Try with filter first
+            try:
+                logger.debug(f"Calling count with filter: {json.dumps(fixed_filter if fixed_filter else filter, default=str)}")
+                count = self.client.count(
+                    collection_name=COLLECTION_NAME,
+                    count_filter=fixed_filter if fixed_filter else filter
+                ).count
+                logger.debug(f"count returned {count}")
+                return count
+            except Exception as e:
+                logger.error(f"Error in count with filter: {str(e)}")
+                # Try without filter as a fallback
+                logger.debug("Trying count without filter as fallback")
+                count = self.client.count(
+                    collection_name=COLLECTION_NAME
+                ).count
+                logger.debug(f"Fallback count returned {count}")
+                return count
+        except Exception as e:
+            logger.error(f"Error in count_memories: {str(e)}")
+            return 0
+    
+    def _fix_filter_format(self, filter):
+        """
+        Fix filter format to be compatible with Qdrant
+        
+        Args:
+            filter: Filter conditions
+            
+        Returns:
+            Fixed filter or None if filter is None
+        """
+        if not filter:
+            return None
+            
+        fixed_filter = None
+        if isinstance(filter, dict):
+            # Log the structure of the filter
+            logger.debug(f"Filter structure: {json.dumps(filter, default=str)}")
+            
+            # Check if the filter has the expected structure
+            if "must" in filter and isinstance(filter["must"], list):
+                # This is the correct format for Qdrant
+                fixed_filter = filter
+                logger.debug("Using original filter format")
+            else:
+                # Try to convert to the correct format
+                logger.debug("Attempting to fix filter format")
+                fixed_filter = {"must": []}
+                for key, value in filter.items():
+                    if isinstance(value, dict) and "range" in value:
+                        fixed_filter["must"].append({"range": {key: value["range"]}})
+                    elif isinstance(value, dict) and "match" in value:
+                        fixed_filter["must"].append({"match": {key: value["match"]["value"]}})
+                logger.debug(f"Fixed filter: {json.dumps(fixed_filter, default=str)}")
+        
+        return fixed_filter
     
     def update_memory(self, point_id, payload):
         """Update memory payload"""

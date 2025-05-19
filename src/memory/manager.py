@@ -169,12 +169,24 @@ class MemoryManager:
         self,
         memory_type: Optional[str] = None,
         min_alignment: float = MIN_ALIGNMENT_SCORE,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        offset: int = 0,
+        limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
-        Get all memories with optional filtering
+        Get memories with optional filtering and pagination
+        
+        Args:
+            memory_type: Filter by memory type
+            min_alignment: Minimum alignment score
+            tags: Filter by tags
+            offset: Number of records to skip
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of memory dictionaries
         """
-        logger.debug(f"get_all_memories called with memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}")
+        logger.debug(f"get_all_memories called with memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}, offset={offset}, limit={limit}")
         
         filter_conditions = {
             "must": [
@@ -201,25 +213,78 @@ class MemoryManager:
         
         memories = []
         try:
-            logger.debug("Calling qdrant.get_all_memories")
-            for batch in self.qdrant.get_all_memories(filter=filter_conditions):
-                logger.debug(f"Received batch with {len(batch)} items")
-                memories.extend([
-                    {
-                        "id": point.id,
-                        "content": point.payload["content"],
-                        "type": point.payload["type"],
-                        "source": point.payload["source"],
-                        "timestamp": point.payload["timestamp"],
-                        "tags": point.payload["tags"],
-                        "alignment_score": point.payload["persona_alignment_score"]
-                    }
-                    for point in batch
-                ])
+            logger.debug(f"Calling qdrant.get_memories_paginated with offset={offset}, limit={limit}")
+            batch = self.qdrant.get_memories_paginated(
+                filter=filter_conditions,
+                offset=offset,
+                limit=limit
+            )
+            
+            logger.debug(f"Received batch with {len(batch)} items")
+            memories = [
+                {
+                    "id": point.id,
+                    "content": point.payload["content"],
+                    "type": point.payload["type"],
+                    "source": point.payload["source"],
+                    "timestamp": point.payload["timestamp"],
+                    "tags": point.payload["tags"],
+                    "alignment_score": point.payload["persona_alignment_score"]
+                }
+                for point in batch
+            ]
         except Exception as e:
             logger.error(f"Error in get_all_memories: {str(e)}")
         
         return memories
+    
+    def count_memories(
+        self,
+        memory_type: Optional[str] = None,
+        min_alignment: float = MIN_ALIGNMENT_SCORE,
+        tags: Optional[List[str]] = None
+    ) -> int:
+        """
+        Count total memories matching the filter criteria
+        
+        Args:
+            memory_type: Filter by memory type
+            min_alignment: Minimum alignment score
+            tags: Filter by tags
+            
+        Returns:
+            Total count of matching memories
+        """
+        logger.debug(f"count_memories called with memory_type={memory_type}, min_alignment={min_alignment}, tags={tags}")
+        
+        filter_conditions = {
+            "must": [
+                {
+                    "key": "persona_alignment_score",
+                    "range": {"gte": min_alignment}
+                }
+            ]
+        }
+        
+        if memory_type:
+            filter_conditions["must"].append({
+                "key": "type",
+                "match": {"value": memory_type}
+            })
+        
+        if tags:
+            filter_conditions["must"].append({
+                "key": "tags",
+                "match": {"value": tags}
+            })
+        
+        try:
+            count = self.qdrant.count_memories(filter=filter_conditions)
+            logger.debug(f"count_memories returned {count}")
+            return count
+        except Exception as e:
+            logger.error(f"Error in count_memories: {str(e)}")
+            return 0
     
     async def delete_memory(self, memory_id: str):
         """Delete a specific memory"""
